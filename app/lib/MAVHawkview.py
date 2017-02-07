@@ -25,10 +25,10 @@ from lxml import objectify
 import pkg_resources
 
 import numpy as np
-from MAVProxy.modules.lib import grapher_vispy
-from MAVProxy.modules.lib import cam_vispy
+import grapher_vispy
+import cam_vispy
 
-from MAVProxy.modules.lib.grapher_vispy import *
+from grapher_vispy import *
 
 
 class MEStatus(object):
