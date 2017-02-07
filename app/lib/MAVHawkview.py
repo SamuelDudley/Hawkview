@@ -25,10 +25,6 @@ from lxml import objectify
 import pkg_resources
 
 import numpy as np
-import grapher_vispy
-import cam_vispy
-
-from grapher_vispy import *
 
 
 class MEStatus(object):
@@ -507,31 +503,7 @@ class Hawkview(object):
             
             
 
-    def graph_process_vispy(self, args):
-        '''process for a vispy graph'''
-        fields = args[0:-2]
-        
-        send_queue = args[-2]
-        recv_queue = args[-1]
-        
-        mgv = grapher_vispy.MavGraphVispy(send_queue,recv_queue)
-        
-        
-        for f in fields:
-            mgv.add_field(f)
-        
-        mgv.set_grid(self.mestate.settings.grid)#can be used to display a grid
-        
-        mgv.set_condition(self.mestate.settings.condition)
-        mgv.set_xaxis(self.mestate.settings.xaxis)
-        mgv.set_flightmode_data(self.mestate.mlog._flightmodes)
-        mgv.set_flightmodes(self.mestate.flightmode_selections)
-        mgv.set_data(self.mestate.arrays)
-        mgv.set_legend(self.mestate.settings.legend)
-        mgv.process()
-        
-        mgv.show()
-        
+    
     def process_stdin(self, line):
         '''handle commands from user'''
         if line is None:
@@ -657,10 +629,8 @@ class Hawkview(object):
         else:
             self.load_np_arrays(fields_to_load)
         
-        mestate.plot_processes.append(multiprocessing.Process(target=self.graph_process_vispy, args=[args]))
         mestate.send_queues.append(send_queue)
         mestate.recv_queues.append(recv_queue)
-        mestate.plot_processes[-1].start()
         
 if __name__ == "__main__":
     from argparse import ArgumentParser
