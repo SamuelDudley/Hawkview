@@ -15,7 +15,7 @@ from MAVProxy.modules.lib import rline
 from MAVProxy.modules.lib import wxconsole
 from MAVProxy.modules.lib import grapher
 # from MAVProxy.modules.lib import mavmemlog
-from MAVProxy.modules.lib import mavmemlog_np
+import mavmemlog_np
 from pymavlink.mavextra import *
 from MAVProxy.modules.lib.mp_menu import *
 from pymavlink import mavutil
