@@ -52,26 +52,26 @@ class MEState(object):
         
             
         self.status = MEStatus()
-#         self.settings = MPSettings(
-#             [ MPSetting('marker', str, '+', 'data marker', tab='Graph'),
-#               MPSetting('condition', str, None, 'condition'),
-#               MPSetting('xaxis', str, None, 'xaxis'),
-#               MPSetting('linestyle', str, None, 'linestyle'),
-#               MPSetting('flightmode', str, None, 'flightmode', choice=['apm','px4']),
-#               MPSetting('legend', str, 'upper left', 'legend position'),
-#               MPSetting('legend2', str, 'upper right', 'legend2 position'),
-#               MPSetting('grid', str, 'off', 'grid', choice=['on','off'])
-#               ]
-#             )
+        self.settings = MPSettings(
+            [ MPSetting('marker', str, '+', 'data marker', tab='Graph'),
+              MPSetting('condition', str, None, 'condition'),
+              MPSetting('xaxis', str, None, 'xaxis'),
+              MPSetting('linestyle', str, None, 'linestyle'),
+              MPSetting('flightmode', str, None, 'flightmode', choice=['apm','px4']),
+              MPSetting('legend', str, 'upper left', 'legend position'),
+              MPSetting('legend2', str, 'upper right', 'legend2 position'),
+              MPSetting('grid', str, 'off', 'grid', choice=['on','off'])
+              ]
+            )
 
         self.mlog = None
 #         self.command_map = command_map
-#         self.completions = {
-#             "set"       : ["(SETTING)"],
-#             "condition" : ["(VARIABLE)"],
-#             "graph"     : ['(VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE)'],
-#             "map"       : ['(VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE)']
-#             }
+        self.completions = {
+            "set"       : ["(SETTING)"],
+            "condition" : ["(VARIABLE)"],
+            "graph"     : ['(VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE)'],
+            "map"       : ['(VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE) (VARIABLE)']
+            }
         self.aliases = {}
         self.graphs = []
         self.flightmode_selections = []
@@ -138,28 +138,29 @@ class MEData(object):
 class Hawkview(object):
     def __init__(self, files):
         
-#         self.command_map = {
-#         'graph'      : (self.cmd_graph,     'display a graph'),
-#         'set'        : (self.cmd_set,       'control settings'),
-#         'reload'     : (self.cmd_reload,    'reload graphs'),
-#         'condition'  : (self.cmd_condition, 'set graph conditions'),
-#         'param'      : (self.cmd_param,     'show parameters'),
-#         'save'       : (self.cmd_save,      'save log'),
-#         'json'       : (self.cmd_json,      'write json files'),
-#         'load'       : (self.cmd_load,      'laod log'),
-#         'nparr'      : (self.cmd_write_all_np_arrays, 'save np array'),
-#         }
+        self.command_map = {
+        'graph'      : (self.cmd_graph,     'display a graph'),
+        'set'        : (self.cmd_set,       'control settings'),
+        'reload'     : (self.cmd_reload,    'reload graphs'),
+        'condition'  : (self.cmd_condition, 'set graph conditions'),
+        'param'      : (self.cmd_param,     'show parameters'),
+        'save'       : (self.cmd_save,      'save log'),
+        'json'       : (self.cmd_json,      'write json files'),
+        'load'       : (self.cmd_load,      'laod log'),
+        'nparr'      : (self.cmd_write_all_np_arrays, 'save np array'),
+        }
         
         self.mestate = MEState()
         self.debug = False
         
-        #self.mestate.rl = rline.rline("MAV> ", self.mestate)
+        self.mestate.rl = rline.rline("MAV> ", self.mestate)
 
 
-        print("Loading %s...\n" % files)
+        print("Loading %s...\n" % files[0])
         
-        self.mestate.file = files
+        self.mestate.file = args.files[0]
         
+        # TODO: add support for loading pre-processed folders
         file_type = self.mestate.file.split('.')
         if len(file_type) == 1:
             # the file is a folder...
@@ -167,11 +168,12 @@ class Hawkview(object):
             # could use os folder / dir here...
             pass
         
-    def process(self, progress_func):
+    def process(self, progress_func, save_path):
         t0 = time.time()
         mlog = mavutil.mavlink_connection(self.mestate.file, notimestamps=False,
                                           zero_time_base=False)
-        self.mestate.mlog = mavmemlog_np.mavmemlog(mlog, progress_func)
+        
+        self.mestate.mlog = mavmemlog_np.mavmemlog(mlog, progress_func, save_path)
         self.mestate.status.msgs = mlog.messages
 
         t1 = time.time()
@@ -184,6 +186,7 @@ class Hawkview(object):
         self.re_caps = re.compile('[A-Z_][A-Z0-9_]+')
         
         print("\nDone! (%u messages in %.1fs)\n" % (self.mestate.mlog._count, t1-t0))
+        
         return {'current': 100, 'total': self.mestate.mlog._count, 'status': 'Task completed!', 'time':t1-t0,
             'result': 42}
     
@@ -294,8 +297,6 @@ class Hawkview(object):
                 print("%-16.16s %f" % (str(p), mestate.mlog.params[p]))
     
     def get_params(self, save_path):
-        
-        import json
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         with open(os.path.join(save_path,'params.json'), 'w') as outfile:

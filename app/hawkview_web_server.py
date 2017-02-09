@@ -5,18 +5,13 @@ Samuel Dudley
 Oct 2016
 '''
                              
-import os, sys, json, uuid, hashlib, random, time, shutil
-
-import os
-import PIL
-from PIL import Image
-import simplejson
-import traceback
+import os, sys, json, uuid, hashlib, random, time, shutil, traceback, 
 import sqlite3 as lite
 
+import simplejson
 from celery import Celery
 
-from flask import Flask, request, render_template, session, redirect, url_for, flash, send_from_directory,jsonify
+from flask import Flask, request, render_template, session, redirect, url_for, flash, send_from_directory, jsonify
 from werkzeug import secure_filename
 
 from lib.upload_file import uploadfile
@@ -62,17 +57,16 @@ def process_log(self, log_path, filename) :
         spaces = '-' * (bar_length - len(hashes))
         self.update_state(state='PROGRESS',
                               meta={'current': pct, 'total': 100,
-                                    'status': 'winning!'})
-    #     print("\r[ {0} ] {1}%".format(hashes + spaces, int(round(percent * 100))))
+                                    'status': 'Processing'})
     hawk = Hawkview(log_path)
-    log_result = hawk.process(progress_bar)
+    log_result = hawk.process(progress_bar, '/tmp/log')
     name, extension = os.path.splitext(filename)
     hawk.load_np_arrays(os.path.join(UPLOAD_FOLDER, name)) 
     hawk.load_graphs()
     tmp = hawk.flightmode_menu(os.path.join(UPLOAD_FOLDER, name))
     for x in tmp:
         print x
-    #print tmp
+        
     tmp = hawk.messages_menu(os.path.join(UPLOAD_FOLDER, name))
     for x in tmp:
         print x
@@ -82,7 +76,11 @@ def process_log(self, log_path, filename) :
         print x
     
     hawk.get_params(os.path.join(UPLOAD_FOLDER, name))
-    return log_result#{'current': 100, 'total': 100, 'status': 'Task completed!', 'result': 42}
+    
+    self.update_state(state='COMPLETE',
+                              meta={'current': 100, 'total': 100,
+                                    'status': 'Task completed!', 'result': 42})
+    return log_result
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -221,7 +219,7 @@ def delete(filename):
 @app.route('/longtask', methods=['POST'])
 def longtask():
     task = long_task.apply_async()
-    return jsonify({}), 202, {'Location': url_for('taskstatus',
+    return jsonify({}), 202, {'Location': url_for('status',
                                                   task_id=task.id)}
 
 
@@ -258,11 +256,6 @@ def taskstatus(task_id):
 
 
 # serve static files
-@app.route("/thumbnail/<string:filename>", methods=['GET'])
-def get_thumbnail(filename):
-    return send_from_directory(THUMBNAIL_FOLDER, filename=filename)
-
-
 @app.route("/data/<string:filename>", methods=['GET'])
 def get_file(filename):
     return send_from_directory(os.path.join(UPLOAD_FOLDER), filename=filename)
@@ -270,7 +263,6 @@ def get_file(filename):
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    print MSGS
     return render_template('index.html')
 
 @app.route('/analysis/<log_id>', methods=['GET', 'POST'])
