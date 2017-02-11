@@ -18,11 +18,18 @@ class mavmemlog(mavutil.mavfile):
         mavutil.mavfile.__init__(self, None, 'memlog')
         self._msgs = []
         self._count = 0
-        self.rewind()
         self._flightmodes = []
         last_flightmode = None
         last_timestamp = None
         last_pct = 0
+        
+        self._index = 0
+        self.percent = 0
+        self.messages = {}
+        self._flightmode_index = 0
+        self._timestamp = None
+        self.flightmode = None
+        self.params = {}
         
         self.ignore = ['BAD_DATA']
         self.write_flag = False

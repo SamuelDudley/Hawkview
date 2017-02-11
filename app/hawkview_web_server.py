@@ -5,7 +5,7 @@ Samuel Dudley
 Oct 2016
 '''
                              
-import os, sys, json, uuid, hashlib, random, time, shutil, traceback, 
+import os, sys, json, uuid, hashlib, random, time, shutil, traceback
 import sqlite3 as lite
 
 import simplejson
@@ -25,7 +25,6 @@ APP_UPLOADS = os.path.join(APP_ROOT, 'uploads')
 app = Flask(__name__, root_path=APP_ROOT, template_folder=APP_TEMPLATES, static_folder=APP_STATIC)
 app.secret_key = str(uuid.uuid4())
 UPLOAD_FOLDER = os.path.join(APP_ROOT, 'data')
-THUMBNAIL_FOLDER= os.path.join(UPLOAD_FOLDER, 'thumbnail')
 app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024 #300 * 1024 * 1024 = 300MB
 
 # Celery configuration
@@ -49,17 +48,22 @@ def get_db_filename():
 
 
 @celery.task(bind=True)
-def process_log(self, log_path, filename) :
+def process_log(self, log_path, filename, output_path='/tmp/log') :
     """Background task that runs a long function with progress reports."""
+    
     def progress_bar(pct, end_val=100, bar_length=100):
         percent = float(pct) / end_val
         hashes = '|' * int(round(percent * bar_length))
         spaces = '-' * (bar_length - len(hashes))
+        
+        print ("\r[ {0} ] {1}%".format(hashes + spaces, int(round(percent * 100))))
+        
         self.update_state(state='PROGRESS',
                               meta={'current': pct, 'total': 100,
                                     'status': 'Processing'})
-    hawk = Hawkview(log_path)
-    log_result = hawk.process(progress_bar, '/tmp/log')
+        
+    hawk = Hawkview(log_path, output_path)
+    log_result = hawk.process(progress_bar)
     name, extension = os.path.splitext(filename)
     hawk.load_np_arrays(os.path.join(UPLOAD_FOLDER, name)) 
     hawk.load_graphs()
@@ -122,6 +126,7 @@ def upload():
         email = request.form['email']
         discription = request.form['textarea']
         
+        
         print email
         file = request.files['file']
         print file
@@ -160,6 +165,7 @@ def upload():
                     if res is not None:
                         if len(res) >= 1:
                             # a file with the same hash already exists...
+                            # return a link to the existing file
                             result = uploadfile(name=res[0], type=mimetype, size=res[12])
                             delete(filename)
                     
@@ -197,6 +203,7 @@ def upload():
 
 @app.route("/delete/<string:filename>", methods=['DELETE'])
 def delete(filename):
+    # TODO: only delete the database entry and think about how to deal with who can remove files
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     name, extension = os.path.splitext(filename)
     file_path_analysis = os.path.join(UPLOAD_FOLDER, name)
@@ -225,7 +232,6 @@ def longtask():
 
 @app.route('/status/<task_id>')
 def taskstatus(task_id):
-    #task = long_task.AsyncResult(task_id)
     task = process_log.AsyncResult(task_id)
     if task.state == 'PENDING':
          #job did not start yet
@@ -255,7 +261,7 @@ def taskstatus(task_id):
     return jsonify(response)
 
 
-# serve static files
+# Allow the download of files from the server
 @app.route("/data/<string:filename>", methods=['GET'])
 def get_file(filename):
     return send_from_directory(os.path.join(UPLOAD_FOLDER), filename=filename)
@@ -269,11 +275,33 @@ def index():
 def analysis(log_id):
     from bokeh.embed import autoload_server
     # generate graphs and run the analysis for this log id
+    print ('Starting analysis for log id:', log_id)
+    
+    [log_name,log_extension] = log_id.split('.')
+    print log_name,log_extension
+    log_folder = os.path.join(UPLOAD_FOLDER,log_name)
+    graphs_json = os.path.join(log_folder, 'graphs.json')
+    params_json = os.path.join(log_folder, 'params.json')
+    flightmodes_json  = os.path.join(log_folder, 'flightmodes.json')
+    messages_json = os.path.join(log_folder, 'messages.json')
+    
+    with open(graphs_json, 'r') as fid:
+        graphs = json.load(fid)
+#     params = json.load(params_json)
+#     flightmodes = json.load(flightmodes_json)
+#     messages = json.load(messages_json)
+    
+    for graph in graphs:
+        print graph['path']
+#         print graph['expression']
+#         print graph['description']
+#         print graph['name']
+    
     script = autoload_server(model=None,
                          app_path="/ardupilot_plot",
                          url="http://localhost:5006/")
     print script
-    return render_template('analysis.html', plot_script = script, log_id = log_id)
+    return render_template('analysis.html', plot_script = script, log_id = log_id, graphs = graphs)
 
 @app.route('/browse', methods=['GET', 'POST'])
 def browse():

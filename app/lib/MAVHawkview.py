@@ -5,7 +5,7 @@ hacked from mavexplorer by Andrew Tridgell to open and view (much) larger logs
 Samuel Dudley September 2015
 '''
 # import memory_profiler
-import sys, struct, time, os, datetime
+import sys, struct, time, os, datetime, json
 import math, re
 import Queue
 import fnmatch
@@ -14,7 +14,6 @@ from math import *
 from MAVProxy.modules.lib import rline
 from MAVProxy.modules.lib import wxconsole
 from MAVProxy.modules.lib import grapher
-# from MAVProxy.modules.lib import mavmemlog
 import mavmemlog_np
 from pymavlink.mavextra import *
 from MAVProxy.modules.lib.mp_menu import *
@@ -77,7 +76,8 @@ class MEState(object):
         self.flightmode_selections = []
     
     def add_array(self, msg_type):
-        self.arrays.update({msg_type : MEData(msg_type, np.fromfile('/tmp/mav/'+msg_type+'.np',dtype = self.mlog.dtypes[msg_type]))})
+        path_to_np_arr = os.path.join(self.raw_np_save_path, msg_type+'.np')
+        self.arrays.update({msg_type : MEData(msg_type, np.fromfile(path_to_np_arr ,dtype = self.mlog.dtypes[msg_type]))})
     
     def get_array(self, msg_type):
         return self.arrays[msg_type].data
@@ -136,7 +136,7 @@ class MEData(object):
 
 
 class Hawkview(object):
-    def __init__(self, files):
+    def __init__(self, files, raw_np_save_path = '/tmp/mav', debug = False):
         
         self.command_map = {
         'graph'      : (self.cmd_graph,     'display a graph'),
@@ -151,14 +151,19 @@ class Hawkview(object):
         }
         
         self.mestate = MEState()
-        self.debug = False
-        
+        self.mestate.debug = debug
+        self.mestate.raw_np_save_path = raw_np_save_path
         self.mestate.rl = rline.rline("MAV> ", self.mestate)
 
-
-        print("Loading %s...\n" % files[0])
-        
-        self.mestate.file = args.files[0]
+        if isinstance(files, list):
+            print("Loading %s...\n" % files[0])
+            self.mestate.file = files[0]
+        elif isinstance(files, basestring):
+            print("Loading %s...\n" % files)
+            self.mestate.file = files
+        else:
+            system.exit(1)
+            
         
         # TODO: add support for loading pre-processed folders
         file_type = self.mestate.file.split('.')
@@ -168,12 +173,12 @@ class Hawkview(object):
             # could use os folder / dir here...
             pass
         
-    def process(self, progress_func, save_path):
+    def process(self, progress_func):
         t0 = time.time()
         mlog = mavutil.mavlink_connection(self.mestate.file, notimestamps=False,
                                           zero_time_base=False)
         
-        self.mestate.mlog = mavmemlog_np.mavmemlog(mlog, progress_func, save_path)
+        self.mestate.mlog = mavmemlog_np.mavmemlog(mlog, progress_func, self.mestate.raw_np_save_path)
         self.mestate.status.msgs = mlog.messages
 
         t1 = time.time()
@@ -560,32 +565,38 @@ class Hawkview(object):
 
             double_type = np.dtype(zip(self.mestate.mlog.message_field_count[msg_type],fmt_list))
             # re cast the array for use
-            self.mestate.set_data(msg_type, self.mestate.get_array(msg_type).astype(dtype=double_type, casting='safe', subok=False, copy=False))
+            try:
+                self.mestate.set_data(msg_type, self.mestate.get_array(msg_type).astype(dtype=double_type, casting='safe', subok=False, copy=False))
+                continue_processing = True
+            except TypeError as e:
+                print ('Error type casting array. Skipping', msg_type, e)
+                continue_processing = False
             
-            #we have built the float64 array.... now apply the atts.
-            
-            for col_name in self.mestate.mlog.message_field_count[msg_type]:
-                setattr(self.mestate.arrays[msg_type], col_name, self.mestate.get_array(msg_type)[:][col_name])
-                col_multi = self.mestate.mlog.msg_mults[msg_type][col_name]
-    #             print col_name, col_multi
-                if col_multi is not None:
-                    self.mestate.get_array(msg_type)[:][col_name]*= float(col_multi)
-                    
-            #save the new numpy array
-            a = self.mestate.get_array(msg_type).astype(dtype=double_type, casting='safe', subok=False, copy=False)
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            np.save(os.path.join(save_path,msg_type), a)
-#             print a
-#             print a.dtype
-                    
-                    
+            if continue_processing:
+                #we have built the float64 array.... now apply the atts.
                 
-            setattr(self.mestate.arrays[msg_type], 'min_timestamp', np.min(self.mestate.arrays[msg_type].timestamp))
-            setattr(self.mestate.arrays[msg_type], 'max_timestamp', np.max(self.mestate.arrays[msg_type].timestamp))
-            
-            # report the final size of the array to the console
-            print msg_type, (self.mestate.arrays[msg_type].data.nbytes)*10**-6, 'MiB'
+                for col_name in self.mestate.mlog.message_field_count[msg_type]:
+                    setattr(self.mestate.arrays[msg_type], col_name, self.mestate.get_array(msg_type)[:][col_name])
+                    col_multi = self.mestate.mlog.msg_mults[msg_type][col_name]
+        #             print col_name, col_multi
+                    if col_multi is not None:
+                        self.mestate.get_array(msg_type)[:][col_name]*= float(col_multi)
+                        
+                #save the new numpy array
+                a = self.mestate.get_array(msg_type).astype(dtype=double_type, casting='safe', subok=False, copy=False)
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path)
+                np.save(os.path.join(save_path,msg_type), a)
+    #             print a
+    #             print a.dtype
+                        
+                        
+                    
+                setattr(self.mestate.arrays[msg_type], 'min_timestamp', np.min(self.mestate.arrays[msg_type].timestamp))
+                setattr(self.mestate.arrays[msg_type], 'max_timestamp', np.max(self.mestate.arrays[msg_type].timestamp))
+                
+                # report the final size of the array to the console
+                print msg_type, (self.mestate.arrays[msg_type].data.nbytes)*10**-6, 'MiB'
     
     def cmd_graph(self, args):
         '''graph command'''
