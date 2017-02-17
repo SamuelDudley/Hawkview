@@ -2,9 +2,9 @@
 An online tool to share and analyse [Ardupilot](http://ardupilot.org/) telemetry (.tlog) and flash (.bin) logs.
 This project aims to replicate the functionality of [review.px4.io](http://review.px4.io/) but with plots and data extraction for [Ardupilot](http://ardupilot.org/) based flight controllers.
 
+Currently in Alpha, this is a proof of concept which needs a bit more refinement to be truly useful to the community.
+
 Much of the web front end & plotting back end code is taken directly from [PX4 - Flight Review](https://github.com/PX4/flight_review/) and data is plotted with the [bokeh](http://bokeh.pydata.org/en/latest/) library.
-
-
 
 
 
