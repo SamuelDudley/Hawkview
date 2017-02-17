@@ -39,14 +39,12 @@
                 <span class="icon-bar"></span>
                 <span class="icon-bar"></span>
             </button>
-            <a class="navbar-brand" href="https://github.com/ArduPilot/ardupilot">Hawkview.io</a>
+            <a class="navbar-brand">Hawkview.io</a>
         </div>
         <div class="navbar-collapse collapse">
             <ul class="nav navbar-nav">
                 <li><a href="{{ url_for('index') }}">Upload</a></li>
                 <li><a href="{{ url_for('browse') }}">Browse</a></li>
-				<li><a href="{{ url_for('about') }}">About</a></li>
-				<li><a href=#plots>plot 1</a></li>
             </ul>
         </div>
     </div>
@@ -55,7 +53,7 @@
     <div class="container">
             <header class="jumbotron">
             <h1>Analysis</h1>
-            <h2 class="lead">{{log_id}}</h2>
+            <h2 class="lead"><a href="{{ url_for('get_file', filename = log_id ) }}">{{log_id}}</a></h2>
         </header>
     </div>
     <div class="container" id="loading">

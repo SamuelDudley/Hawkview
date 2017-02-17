@@ -4,7 +4,9 @@ log analysis program
 hacked from mavexplorer by Andrew Tridgell to open and view (much) larger logs
 Samuel Dudley September 2015
 '''
-# import memory_profiler
+
+import collections
+
 import sys, struct, time, os, datetime, json
 import math, re
 import Queue
@@ -14,7 +16,7 @@ from math import *
 from MAVProxy.modules.lib import rline
 from MAVProxy.modules.lib import wxconsole
 from MAVProxy.modules.lib import grapher
-import mavmemlog_np
+
 from pymavlink.mavextra import *
 from MAVProxy.modules.lib.mp_menu import *
 from pymavlink import mavutil
@@ -22,8 +24,24 @@ from MAVProxy.modules.lib.mp_settings import MPSettings, MPSetting
 from MAVProxy.modules.lib import wxsettings
 from lxml import objectify
 import pkg_resources
-
+import mavmemlog_np
 import numpy as np
+
+
+class LoadedMlog(object):
+    '''mlog object to hold loaded values (no actual file)'''
+    def __init__(self):
+        self.params = {}
+        self.message_field_count = {}
+        self.message_count = {}
+        self.dtypes = {}
+        self.msg_mults = {}
+        self.struct_fmts = {}
+        self._flightmodes = {}
+        self.min_timestamp = None
+        self.max_timestamp = None
+        
+        
 
 
 class MEStatus(object):
@@ -47,6 +65,9 @@ class MEState(object):
         #self.console = wxconsole.MessageConsole(title='MAVHawkview')
         self.exit = False
         self.websocket_enabled = None
+        
+        self.log_max_timestamp = None
+        self.log_min_timestamp = None
 
         
             
@@ -77,7 +98,7 @@ class MEState(object):
     
     def add_array(self, msg_type):
         path_to_np_arr = os.path.join(self.raw_np_save_path, msg_type+'.np')
-        self.arrays.update({msg_type : MEData(msg_type, np.fromfile(path_to_np_arr ,dtype = self.mlog.dtypes[msg_type]))})
+        self.arrays.update({msg_type : MEData(msg_type = msg_type , data = np.fromfile(path_to_np_arr ,dtype = self.mlog.dtypes[msg_type]))})
     
     def get_array(self, msg_type):
         return self.arrays[msg_type].data
@@ -105,18 +126,12 @@ class GraphDefinition(object):
         self.description = description
 
 
-
-
-
-        
 class MEFlightmode(object):
     def __init__(self, number, s_global = None , e_global = None, s_local = None, e_local = None):
         self.number = number
         self.s_global = s_global
         self.e_global = e_global
-        
-        
-            
+
         self.s_local = s_local
         self.e_local = e_local
         self.duration_local = None
@@ -124,19 +139,47 @@ class MEFlightmode(object):
     def set_duration_global(self, start, end):
         self.duration_global = e_global - s_global
         
+class MEData(collections.MutableMapping):
+    """A dictionary that applies an arbitrary key-altering
+       function before accessing the keys"""
 
-class MEData(object):
-    def __init__(self, type, data):
-        self.type = type
+    def __init__(self, msg_type, data, *args, **kwargs):
+        self.name = msg_type
         self.data = data
-        
-    def get_type(self):
-        return self.type
+        self.store = dict()
+        self.update(dict(*args, **kwargs))  # use the free update to set keys
+
+    def __getitem__(self, key):
+        return self.store[self.__keytransform__(key)]
+
+    def __setitem__(self, key, value):
+        self.store[self.__keytransform__(key)] = value
+
+    def __delitem__(self, key):
+        del self.store[self.__keytransform__(key)]
+
+    def __iter__(self):
+        return iter(self.store)
+
+    def __len__(self):
+        return len(self.store)
+
+    def __keytransform__(self, key):
+        return key
+    
+    
+# class MEData(object):
+#     def __init__(self, type, data):
+#         self.type = type
+#         self.data = data
+#         
+#     def get_type(self):
+#         return self.type
 
 
 
 class Hawkview(object):
-    def __init__(self, files, raw_np_save_path = '/tmp/mav', debug = False):
+    def __init__(self, files, processed_np_save_path = '/tmp/mav/',raw_np_save_path ='/tmp/mav/raw/', debug = False):
         
         self.command_map = {
         'graph'      : (self.cmd_graph,     'display a graph'),
@@ -152,8 +195,13 @@ class Hawkview(object):
         
         self.mestate = MEState()
         self.mestate.debug = debug
+        self.debug = debug
         self.mestate.raw_np_save_path = raw_np_save_path
+        self.mestate.processed_np_save_path = processed_np_save_path
         self.mestate.rl = rline.rline("MAV> ", self.mestate)
+        
+        # make a regular expression to extract the words containing capital letters (msg types)
+        self.re_caps = re.compile('[A-Z_][A-Z0-9_]+')
 
         if isinstance(files, list):
             print("Loading %s...\n" % files[0])
@@ -162,56 +210,73 @@ class Hawkview(object):
             print("Loading %s...\n" % files)
             self.mestate.file = files
         else:
-            system.exit(1)
+            sys.exit(1)
             
-        
-        # TODO: add support for loading pre-processed folders
-        file_type = self.mestate.file.split('.')
-        if len(file_type) == 1:
+        # support for loading pre-processed folders
+        if os.path.isdir(files):
             # the file is a folder...
             # try to load the existing info...
-            # could use os folder / dir here...
-            pass
+            self.is_folder = True
+        else:
+            self.is_folder = False
         
-    def process(self, progress_func):
-        t0 = time.time()
-        mlog = mavutil.mavlink_connection(self.mestate.file, notimestamps=False,
-                                          zero_time_base=False)
         
-        self.mestate.mlog = mavmemlog_np.mavmemlog(mlog, progress_func, self.mestate.raw_np_save_path)
-        self.mestate.status.msgs = mlog.messages
-
-        t1 = time.time()
-        
-
-#         self.load_graphs()
-#         self.setup_menus()
-        
-        # make a regular expression to extract the words containing capital letters (msg types)
-        self.re_caps = re.compile('[A-Z_][A-Z0-9_]+')
-        
-        print("\nDone! (%u messages in %.1fs)\n" % (self.mestate.mlog._count, t1-t0))
-        
-        return {'current': 100, 'total': self.mestate.mlog._count, 'status': 'Task completed!', 'time':t1-t0,
-            'result': 42}
+    def process(self, progress_func = False):
+        if self.is_folder:
+            self.cmd_load(args=[])
+        else:
+            t0 = time.time()
+            mlog = mavutil.mavlink_connection(self.mestate.file, notimestamps=False,
+                                              zero_time_base=False)
+            if not progress_func:
+                progress_func = self.progress_bar
+            self.mestate.mlog = mavmemlog_np.mavmemlog(mlog, progress_func, self.mestate.raw_np_save_path)
+            self.mestate.status.msgs = mlog.messages
+    
+            t1 = time.time()
+            
+            print("\nDone! (%u messages in %.1fs)\n" % (self.mestate.mlog._count, t1-t0))
     
     def cmd_save(self, args):
         import pickle
-        with open('pickle.test', 'wb') as fid:
+        mlog_pickle_path = os.path.join(self.mestate.raw_np_save_path, 'mlog.pickle')
+        with open(mlog_pickle_path, 'wb') as fid:
             # pickle any of the mlog values needed to re generate the current log from file
             pickle.dump({'params':self.mestate.mlog.params, 'message_field_count':self.mestate.mlog.message_field_count,
                         'message_count':self.mestate.mlog.message_count, 'dtypes':self.mestate.mlog.dtypes,
                         'msg_mults':self.mestate.mlog.msg_mults, 'struct_fmts':self.mestate.mlog.struct_fmts,
-                        'flightmodes':self.mestate.mlog._flightmodes}, fid)
+                        'flightmodes':self.mestate.mlog._flightmodes, 'log_max_timestamp':self.mestate.mlog.max_timestamp,
+                        'log_min_timestamp':self.mestate.mlog.min_timestamp}, fid)
             fid.flush()
         fid.close()
+        
+        self.load_graphs()
+        self.graph_menus(save=True)
+        
+        self.messages_menu(save=True)
+        self.flightmode_menu(save=True)
+        self.get_params()
     
     def cmd_load(self, args):
         import pickle
-        with open('pickle.test', 'rb') as fid:
+        mlog_pickle_path = os.path.join(self.mestate.file, 'mlog.pickle')
+        with open(mlog_pickle_path, 'rb') as fid:
             inst = pickle.load(fid)
         fid.close()
-        print inst
+        self.mestate.mlog = LoadedMlog()
+        self.mestate.mlog.params = inst['params']
+        self.mestate.mlog.message_field_count = inst['message_field_count']
+        self.mestate.mlog.message_count = inst['message_count']
+        self.mestate.mlog.dtypes = inst['dtypes']
+        self.mestate.mlog.msg_mults = inst['msg_mults']
+        self.mestate.mlog.struct_fmts = inst['struct_fmts']
+        self.mestate.mlog._flightmodes = inst['flightmodes']
+        self.mestate.mlog.min_timestamp = inst['log_min_timestamp']
+        self.mestate.mlog.max_timestamp = inst['log_max_timestamp']
+        self.mestate.raw_np_save_path = self.mestate.file
+        
+        print("\nDone!")
+        
     
     def cmd_write_all_np_arrays(self, args):
         self.load_np_arrays()
@@ -301,7 +366,8 @@ class Hawkview(object):
             if fnmatch.fnmatch(str(p).upper(), wildcard.upper()):
                 print("%-16.16s %f" % (str(p), mestate.mlog.params[p]))
     
-    def get_params(self, save_path):
+    def get_params(self):
+        save_path = self.mestate.raw_np_save_path
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         with open(os.path.join(save_path,'params.json'), 'w') as outfile:
@@ -342,7 +408,7 @@ class Hawkview(object):
                 return True
         return False
     
-    def graph_menus(self, save_path):
+    def graph_menus(self, save = False):
         '''return menu tree for graphs (recursive)'''
         ret = []
         for i in range(len(self.mestate.graphs)):
@@ -351,13 +417,18 @@ class Hawkview(object):
             name = path[-1]
             path = path[:-1]
             ret.append({"name":name, "path":path, "expression":g.expression, "description":g.description })
-#             ret.add_to_submenu(path, MPMenuItem(name, name, '# graph :%u' % i))
-        import json
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        with open(os.path.join(save_path,'graphs.json'), 'w') as outfile:
-            json.dump(ret, outfile)
+#             if not save:
+#                 ret.add_to_submenu(path, MPMenuItem(name, name, '# graph :%u' % i))
+        if save:
+            save_path = self.mestate.raw_np_save_path
+            import json
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            with open(os.path.join(save_path,'graphs.json'), 'w') as outfile:
+                json.dump(ret, outfile)
         return ret
+
+            
 
     def setup_menus(self):
         '''setup console menus'''
@@ -422,7 +493,7 @@ class Hawkview(object):
                     break
         return True
     
-    def flightmode_menu(self, save_path):
+    def flightmode_menu(self, save = False):
         '''construct flightmode menu'''
         modes = self.mestate.mlog.flightmode_list()
         ret = []
@@ -431,14 +502,17 @@ class Hawkview(object):
             modestr = "%s %us" % (mode, (t2-t1))
             ret.append({"name":mode, "start":t1, "end":t2})
         
-        import json
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        with open(os.path.join(save_path,'flightmodes.json'), 'w') as outfile:
-            json.dump(ret, outfile)
+        if save:
+            save_path = self.mestate.raw_np_save_path
+            import json
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            with open(os.path.join(save_path,'flightmodes.json'), 'w') as outfile:
+                json.dump(ret, outfile)
+        
         return ret
     
-    def messages_menu(self, save_path):
+    def messages_menu(self, save=False):
         '''construct messages menu'''
         msgs = self.mestate.mlog.message_field_count.keys()
         ret = []
@@ -447,11 +521,14 @@ class Hawkview(object):
 #             msgstr = "%s" % (str(self.mestate.mlog.message_count[msg])+' : '+msg+' '+str(self.mestate.mlog.message_field_count[msg]))
 #             ret.append(msgstr)
 #         print ret
-        import json
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        with open(os.path.join(save_path,'messages.json'), 'w') as outfile:
-            json.dump(ret, outfile)
+        if save:
+            save_path = self.mestate.raw_np_save_path
+            
+            import json
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            with open(os.path.join(save_path,'messages.json'), 'w') as outfile:
+                json.dump(ret, outfile)
         return ret
     
     def main_loop(self):
@@ -541,7 +618,7 @@ class Hawkview(object):
         except Exception as e:
             print("ERROR in command %s: %s" % (args[1:], str(e)))
     
-    def load_np_arrays(self, save_path, msg_types=None):
+    def load_np_arrays(self, msg_types=None):
         print 'existing', self.mestate.get_array_names()
         if msg_types is not None:
             msg_types = [x for x in msg_types if ((x in self.mestate.mlog.dtypes.keys()) and (x not in self.mestate.arrays.keys()))]
@@ -577,23 +654,47 @@ class Hawkview(object):
                 
                 for col_name in self.mestate.mlog.message_field_count[msg_type]:
                     setattr(self.mestate.arrays[msg_type], col_name, self.mestate.get_array(msg_type)[:][col_name])
+                    self.mestate.arrays[msg_type][col_name] = getattr(self.mestate.arrays[msg_type], col_name)
                     col_multi = self.mestate.mlog.msg_mults[msg_type][col_name]
         #             print col_name, col_multi
                     if col_multi is not None:
                         self.mestate.get_array(msg_type)[:][col_name]*= float(col_multi)
                         
                 #save the new numpy array
-                a = self.mestate.get_array(msg_type).astype(dtype=double_type, casting='safe', subok=False, copy=False)
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
-                np.save(os.path.join(save_path,msg_type), a)
-    #             print a
-    #             print a.dtype
+                
+                if self.mestate.processed_np_save_path:
+                    save_path = self.mestate.processed_np_save_path
+                
+                    a = self.mestate.get_array(msg_type).astype(dtype=double_type, casting='safe', subok=False, copy=False)
+                    if not os.path.exists(save_path):
+                        os.makedirs(save_path)
+                    np.save(os.path.join(save_path,msg_type), a)
+
                         
-                        
+                msg_type_min_timestamp = np.min(self.mestate.arrays[msg_type].timestamp)
+                msg_type_max_timestamp = np.max(self.mestate.arrays[msg_type].timestamp)
+                  
+                setattr(self.mestate.arrays[msg_type], 'min_timestamp', msg_type_min_timestamp)
+                setattr(self.mestate.arrays[msg_type], 'max_timestamp', msg_type_max_timestamp)
+                
+                if self.mestate.mlog.min_timestamp is None:
+                    self.mestate.mlog.min_timestamp = msg_type_min_timestamp
                     
-                setattr(self.mestate.arrays[msg_type], 'min_timestamp', np.min(self.mestate.arrays[msg_type].timestamp))
-                setattr(self.mestate.arrays[msg_type], 'max_timestamp', np.max(self.mestate.arrays[msg_type].timestamp))
+                elif self.mestate.mlog.min_timestamp > msg_type_min_timestamp:
+                    self.mestate.mlog.min_timestamp = msg_type_min_timestamp
+                
+                else:
+                    pass
+                
+                if self.mestate.mlog.max_timestamp is None:
+                    self.mestate.mlog.max_timestamp = msg_type_max_timestamp
+                    
+                elif self.mestate.mlog.max_timestamp < msg_type_max_timestamp:
+                    self.mestate.mlog.max_timestamp = msg_type_max_timestamp
+                    
+                else:
+                    pass
+                
                 
                 # report the final size of the array to the console
                 print msg_type, (self.mestate.arrays[msg_type].data.nbytes)*10**-6, 'MiB'
@@ -639,7 +740,7 @@ class Hawkview(object):
         if len(fields_to_load) == 0:
             pass
         else:
-            self.load_np_arrays(fields_to_load)
+            self.load_np_arrays(msg_types=fields_to_load)
         
         mestate.send_queues.append(send_queue)
         mestate.recv_queues.append(recv_queue)
@@ -654,11 +755,14 @@ if __name__ == "__main__":
         print("Usage: MAVHawkview FILE")
         sys.exit(1)
         
-    hawk = Hawkview(args.files)
+    hawk = Hawkview(args.files, debug=True)
     # run main loop as a thread
     hawk.mestate.thread = threading.Thread(target=hawk.main_loop, name='main_loop')
     hawk.mestate.thread.daemon = True
     hawk.mestate.thread.start()
+    hawk.process()
+#     hawk.load_graphs()
+#     hawk.setup_menus()
     
     # input loop
     while True:

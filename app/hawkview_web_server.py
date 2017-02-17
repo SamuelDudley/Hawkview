@@ -8,6 +8,9 @@ Oct 2016
 import os, sys, json, uuid, hashlib, random, time, shutil, traceback
 import sqlite3 as lite
 
+import bokeh
+from bokeh.io import curdoc
+
 import simplejson
 from celery import Celery
 
@@ -25,7 +28,7 @@ APP_UPLOADS = os.path.join(APP_ROOT, 'uploads')
 app = Flask(__name__, root_path=APP_ROOT, template_folder=APP_TEMPLATES, static_folder=APP_STATIC)
 app.secret_key = str(uuid.uuid4())
 UPLOAD_FOLDER = os.path.join(APP_ROOT, 'data')
-app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024 #300 * 1024 * 1024 = 300MB
+app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024 # = 300MB
 
 # Celery configuration
 app.config['CELERY_BROKER_URL'] = 'redis://localhost:6379/0'
@@ -41,7 +44,6 @@ IGNORED_FILES = [ f for f in os.listdir(UPLOAD_FOLDER) if os.path.isfile(os.path
 IGNORED_FILES.append('.gitignore')
 print 'IGNORED_FILES', IGNORED_FILES
 
-MSGS = []
 
 def get_db_filename():
     return os.path.join(os.getcwd(), 'data', 'logdatabase.db')
@@ -61,30 +63,17 @@ def process_log(self, log_path, filename, output_path='/tmp/log') :
         self.update_state(state='PROGRESS',
                               meta={'current': pct, 'total': 100,
                                     'status': 'Processing'})
-        
-    hawk = Hawkview(log_path, output_path)
-    log_result = hawk.process(progress_bar)
-    name, extension = os.path.splitext(filename)
-    hawk.load_np_arrays(os.path.join(UPLOAD_FOLDER, name)) 
-    hawk.load_graphs()
-    tmp = hawk.flightmode_menu(os.path.join(UPLOAD_FOLDER, name))
-    for x in tmp:
-        print x
-        
-    tmp = hawk.messages_menu(os.path.join(UPLOAD_FOLDER, name))
-    for x in tmp:
-        print x
-        
-    tmp = hawk.graph_menus(os.path.join(UPLOAD_FOLDER, name))
-    for x in tmp:
-        print x
     
-    hawk.get_params(os.path.join(UPLOAD_FOLDER, name))
+    name, extension = os.path.splitext(filename)
+    hawk = Hawkview(log_path, raw_np_save_path= os.path.join(UPLOAD_FOLDER, name))
+    log_result = hawk.process(progress_func = progress_bar)
+    
+    hawk.cmd_save(args=[])
     
     self.update_state(state='COMPLETE',
                               meta={'current': 100, 'total': 100,
                                     'status': 'Task completed!', 'result': 42})
-    return log_result
+    return {}
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -93,7 +82,7 @@ def allowed_file(filename):
 
 def gen_file_name(filename):
     """
-    If file was exist already, rename it and return a new name
+    If file name exist already, rename it and return a new name
     """
     name, extension = os.path.splitext(filename)
     name = str(uuid.uuid4())
@@ -119,17 +108,12 @@ def md5sum(filename, blocksize=65536):
 
 @app.route("/upload", methods=['GET', 'POST'])
 def upload():
-    print request.method
-#     print dir(request)
     if request.method == 'POST':
         print request.form
         email = request.form['email']
         discription = request.form['textarea']
-        
-        
-        print email
+        # TODO: email user when log is ready
         file = request.files['file']
-        print file
         result = None
         if file:
             filename = secure_filename(file.filename)
@@ -181,7 +165,7 @@ def upload():
                     task = process_log.apply_async((os.path.join(APP_ROOT,result.get_file()['url']),filename))
                     print task.id
                 
-#                         task = long_task.apply_async()
+#                 task = long_task.apply_async()
             return simplejson.dumps({"files": [result.get_file()]})
 
     if request.method == 'GET':
@@ -201,40 +185,30 @@ def upload():
     return redirect(url_for('index'))
 
 
-@app.route("/delete/<string:filename>", methods=['DELETE'])
+# TODO: only delete the database entry and think about how to deal with who can remove files
+# @app.route("/delete/<string:filename>", methods=['DELETE'])
 def delete(filename):
-    # TODO: only delete the database entry and think about how to deal with who can remove files
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     name, extension = os.path.splitext(filename)
     file_path_analysis = os.path.join(UPLOAD_FOLDER, name)
-    file_thumb_path = os.path.join(THUMBNAIL_FOLDER, filename)
-
+ 
     if os.path.exists(file_path):
         try:
             os.remove(file_path)
-
-            if os.path.exists(file_thumb_path):
-                os.remove(file_thumb_path)
-                
+                 
             if os.path.isdir(file_path_analysis):
                 shutil.rmtree(file_path_analysis)
-            
+             
             return simplejson.dumps({filename: 'True'})
         except:
             return simplejson.dumps({filename: 'False'})
-        
-@app.route('/longtask', methods=['POST'])
-def longtask():
-    task = long_task.apply_async()
-    return jsonify({}), 202, {'Location': url_for('status',
-                                                  task_id=task.id)}
 
 
 @app.route('/status/<task_id>')
 def taskstatus(task_id):
     task = process_log.AsyncResult(task_id)
     if task.state == 'PENDING':
-         #job did not start yet
+        # job has not started yet
         response = {
             'state': task.state,
             'current': 0,
@@ -266,7 +240,6 @@ def taskstatus(task_id):
 def get_file(filename):
     return send_from_directory(os.path.join(UPLOAD_FOLDER), filename=filename)
 
-
 @app.route('/', methods=['GET', 'POST'])
 def index():
     return render_template('index.html')
@@ -297,10 +270,14 @@ def analysis(log_id):
 #         print graph['description']
 #         print graph['name']
     
+    bokeh_session_id = str(uuid.uuid4())
     script = autoload_server(model=None,
-                         app_path="/ardupilot_plot",
+                         app_path="/plot_app",
+                         session_id= log_name+":"+bokeh_session_id, # we pass the log id in front of a
+                         # unique session id. There might be a better way to do this with bokeh but
+                         # this works for now...
                          url="http://localhost:5006/")
-    print script
+    
     return render_template('analysis.html', plot_script = script, log_id = log_id, graphs = graphs)
 
 @app.route('/browse', methods=['GET', 'POST'])

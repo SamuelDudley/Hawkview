@@ -22,6 +22,8 @@ class mavmemlog(mavutil.mavfile):
         last_flightmode = None
         last_timestamp = None
         last_pct = 0
+        self.min_timestamp = None
+        self.max_timestamp = None
         
         self._index = 0
         self.percent = 0
@@ -145,6 +147,21 @@ class mavmemlog(mavutil.mavfile):
                     struct_elements = [m.to_dict()[x] for x in m.ordered_fieldnames if x != 'timestamp']
                 
                 struct_elements.append(m._timestamp)
+                
+                # keep track of the log timestamps
+                if self.min_timestamp is None:
+                    self.min_timestamp = m._timestamp
+                elif m._timestamp < self.min_timestamp:
+                    self.min_timestamp = m._timestamp
+                else:
+                    pass
+                
+                if self.max_timestamp is None:
+                    self.max_timestamp = m._timestamp
+                elif m._timestamp > self.max_timestamp:
+                    self.max_timestamp = m._timestamp
+                else:
+                    pass
                 
                 embedded_list_flag = True
                 

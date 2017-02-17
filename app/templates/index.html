@@ -1,16 +1,4 @@
 <!DOCTYPE HTML>
-<!--
-/*
- * jQuery File Upload Plugin Demo
- * https://github.com/blueimp/jQuery-File-Upload
- *
- * Copyright 2010, Sebastian Tschan
- * https://blueimp.net
- *
- * Licensed under the MIT license:
- * http://www.opensource.org/licenses/MIT
- */
--->
 <html lang="en">
 <head>
 <!-- Force latest IE rendering engine or ChromeFrame if installed -->
@@ -19,7 +7,6 @@
 <![endif]-->
 <meta charset="utf-8">
 <title>Hawkview</title>
-<meta name="description" content="File Upload widget with multiple file selection, drag&amp;drop support, progress bars, validation and preview images, audio and video for jQuery. Supports cross-domain, chunked and resumable file uploads and client-side image resizing. Works with any server-side platform (PHP, Python, Ruby on Rails, Java, Node.js, Go etc.) that supports standard HTML form file uploads.">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Bootstrap styles -->
 <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
@@ -46,13 +33,12 @@
                 <span class="icon-bar"></span>
                 <span class="icon-bar"></span>
             </button>
-            <a class="navbar-brand" href="https://github.com/ArduPilot/ardupilot">Hawkview.io</a>
+            <a class="navbar-brand">Hawkview.io</a>
         </div>
         <div class="navbar-collapse collapse">
             <ul class="nav navbar-nav">
                 <li><a href="{{ url_for('index') }}">Upload</a></li>
                 <li><a href="{{ url_for('browse') }}">Browse</a></li>
-				<li><a href="{{ url_for('about') }}">About</a></li>
             </ul>
         </div>
     </div>
@@ -82,20 +68,7 @@
                     <span>Add files...</span>
                     <input type="file" name="file" multiple>
                 </span>
-                <!-- We remove these as they are not needed. we use the upload button on the generated form
-                <button type="submit" class="btn btn-primary start">
-                    <i class="glyphicon glyphicon-upload"></i>
-                    <span>Start upload</span>
-                </button>
-                <button type="reset" class="btn btn-warning cancel">
-                    <i class="glyphicon glyphicon-ban-circle"></i>
-                    <span>Cancel upload</span>
-                </button>
-                <button type="button" class="btn btn-danger delete">
-                    <i class="glyphicon glyphicon-trash"></i>
-                    <span>Delete</span>
-                </button>
-                -->
+
                 <!-- The global file processing state -->
                 <span class="fileupload-process"></span>
             </div>
@@ -188,20 +161,6 @@
         </td>
         <td>
             <span class="size">{%=o.formatFileSize(file.size)%}</span>
-        </td>
-        <td>
-            {% if (file.deleteUrl) { %}
-                <button class="btn btn-danger delete" data-type="{%=file.deleteType%}" data-url="{%=file.deleteUrl%}"{% if (file.deleteWithCredentials) { %} data-xhr-fields='{"withCredentials":true}'{% } %}>
-                    <i class="glyphicon glyphicon-trash"></i>
-                    <span>Delete</span>
-                </button>
-                <input type="checkbox" name="delete" value="1" class="toggle">
-            {% } else { %}
-                <button class="btn btn-warning cancel">
-                    <i class="glyphicon glyphicon-ban-circle"></i>
-                    <span>Cancel</span>
-                </button>
-            {% } %}
         </td>
     </tr>
 {% } %}
