@@ -109,7 +109,7 @@ class DataPlot:
         return self._param_change_label
 
 
-    def add_graph(self, timestamps, field_values, field_names, colors, legends, use_downsample=True):
+    def add_graph(self, timestamp, field_values, field_names, colors, legends, use_downsample=True):
         """ add 1 or more lines to a graph
 
         field_names can be a list of fields from the data set, or a list of
@@ -118,20 +118,25 @@ class DataPlot:
         """
         if self._had_error: return
         try:
-            for timestamp, field_value, field_name, color, legend in zip(timestamps, field_values, field_names, colors, legends): 
-                p = self._p       
-                data_set = {}
-                data_set['timestamp'] = timestamp
+            p = self._p       
+            data_set = {}
+            data_set['timestamp'] = timestamp
+            
+            for field_value, field_name in zip(field_values, field_names): 
                 data_set[field_name] = field_value
+                
+            
+            if use_downsample:
+                # we directly pass the data_set, downsample and then create the
+                # ColumnDataSource object, which is much faster than
+                # first creating ColumnDataSource, and then downsample
+                downsample = DynamicDownsample(p, data_set, 'timestamp')
+                data_source = downsample.data_source
+            else:
+                data_source = ColumnDataSource(data=data_set)
+            
+            for field_name, color, legend in zip(field_names, colors, legends):
                 legend = " "+legend # Legend values will become keywords to data source. Add the space to keep them unique
-                if use_downsample:
-                    # we directly pass the data_set, downsample and then create the
-                    # ColumnDataSource object, which is much faster than
-                    # first creating ColumnDataSource, and then downsample
-                    downsample = DynamicDownsample(p, data_set, 'timestamp')
-                    data_source = downsample.data_source
-                else:
-                    data_source = ColumnDataSource(data=data_set)
     
                 p.line(x='timestamp', y=field_name, source=data_source,
                        legend=legend, line_width=2, line_color=color)

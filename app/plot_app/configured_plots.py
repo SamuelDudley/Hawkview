@@ -55,12 +55,12 @@ def generate_plots(hawk, graphs, colors, flight_modes, plots = []):
         except KeyError:
             gHandle = None
         
-        print gExpression, gName, gDescription
+#         print gExpression, gName, gDescription
         
         msg_types = set() # an empty set
         
         fields = gExpression.split() # extract the fields from the graph expression
-        print 'cmd_graph fields input: ',fields
+#         print 'cmd_graph fields input: ',fields
         fields_to_load = set([x.split('.')[0] for x in fields])
         
         for f in fields_to_load:
@@ -68,20 +68,20 @@ def generate_plots(hawk, graphs, colors, flight_modes, plots = []):
             msg_types = msg_types.union(caps)
             
         fields_to_load = list(msg_types) # convert the finished set into a list
-        print 'cmd_graph fields to load: ',fields_to_load 
+#         print 'cmd_graph fields to load: ',fields_to_load 
         
         fields_to_load = [x for x in fields_to_load if (x in mestate.mlog.dtypes.keys() and x not in mestate.arrays.keys())]
         if len(fields_to_load) == 0:
             pass
         else:
-            hawk.load_np_arrays(fields_to_load)
+            hawk.load_np_arrays(fields_to_load, ram = False)
         
         data_plot = None
         
         colors_index = 0
         
         for field in fields:
-            print "plot:", field
+#             print "plot:", field
             
             if field.endswith(":2"):
                 # TODO: add support for more axis
@@ -93,7 +93,7 @@ def generate_plots(hawk, graphs, colors, flight_modes, plots = []):
                 print 'eval failed: ', field
             
             else:
-                print y     
+#                 print y     
                 msg_types = set()
                 caps = set(re.findall(re_caps, field))
                 msg_types = msg_types.union(caps)
@@ -107,7 +107,7 @@ def generate_plots(hawk, graphs, colors, flight_modes, plots = []):
                     if data_plot is None:
                         data_plot = DataPlot(plot_config, title = gName, plot_name = gHandle)
                         
-                    data_plot.add_graph([x], [y], [field], [colors[colors_index]], [field], use_downsample=True)
+                    data_plot.add_graph(x, [y], [field], [colors[colors_index]], [field], use_downsample=True)
                     colors_index += 1
                         
         if data_plot is not None:

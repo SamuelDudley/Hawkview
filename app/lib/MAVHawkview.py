@@ -96,9 +96,14 @@ class MEState(object):
         self.graphs = []
         self.flightmode_selections = []
     
-    def add_array(self, msg_type):
+    def add_array(self, msg_type, ram=True):
         path_to_np_arr = os.path.join(self.raw_np_save_path, msg_type+'.np')
-        self.arrays.update({msg_type : MEData(msg_type = msg_type , data = np.fromfile(path_to_np_arr ,dtype = self.mlog.dtypes[msg_type]))})
+        
+        if ram:
+            self.arrays.update({msg_type : MEData(msg_type = msg_type , data = np.fromfile(path_to_np_arr ,dtype = self.mlog.dtypes[msg_type]))})
+        else:
+            self.arrays.update({msg_type : MEData(msg_type = msg_type , data = np.memmap(path_to_np_arr ,dtype = self.mlog.dtypes[msg_type]))})
+            
     
     def get_array(self, msg_type):
         return self.arrays[msg_type].data
@@ -618,7 +623,7 @@ class Hawkview(object):
         except Exception as e:
             print("ERROR in command %s: %s" % (args[1:], str(e)))
     
-    def load_np_arrays(self, msg_types=None):
+    def load_np_arrays(self, msg_types=None, ram=True):
         print 'existing', self.mestate.get_array_names()
         if msg_types is not None:
             msg_types = [x for x in msg_types if ((x in self.mestate.mlog.dtypes.keys()) and (x not in self.mestate.arrays.keys()))]
@@ -628,7 +633,7 @@ class Hawkview(object):
         print 'loading', msg_types
         for msg_type in msg_types:
             
-            self.mestate.add_array(msg_type)
+            self.mestate.add_array(msg_type, ram=ram)
             # we have loaded the array, but we cant do operations on it simply as the datatypes are set.
             
             fmt_list = []

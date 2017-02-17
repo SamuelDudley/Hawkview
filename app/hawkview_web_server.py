@@ -4,7 +4,7 @@ Flask server for Hawkview Web App
 Samuel Dudley
 Oct 2016
 '''
-                             
+from plot_app.config import __FLASK_SECRET_KEY, __FLASK_PORT, __FLASK_DEBUG, __BOKEH_DOMAIN_NAME, __BOKEH_PORT                           
 import os, sys, json, uuid, hashlib, random, time, shutil, traceback
 import sqlite3 as lite
 
@@ -26,7 +26,7 @@ APP_TEMPLATES = os.path.join(APP_ROOT, 'templates')
 APP_UPLOADS = os.path.join(APP_ROOT, 'uploads')
 
 app = Flask(__name__, root_path=APP_ROOT, template_folder=APP_TEMPLATES, static_folder=APP_STATIC)
-app.secret_key = str(uuid.uuid4())
+app.secret_key = __FLASK_SECRET_KEY
 UPLOAD_FOLDER = os.path.join(APP_ROOT, 'data')
 app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024 # = 300MB
 
@@ -73,6 +73,7 @@ def process_log(self, log_path, filename, output_path='/tmp/log') :
     self.update_state(state='COMPLETE',
                               meta={'current': 100, 'total': 100,
                                     'status': 'Task completed!', 'result': 42})
+    hawk = None
     return {}
 
 def allowed_file(filename):
@@ -269,14 +270,14 @@ def analysis(log_id):
 #         print graph['expression']
 #         print graph['description']
 #         print graph['name']
-    
+    bokeh_server_url = 'http://' + __BOKEH_DOMAIN_NAME +':'+__BOKEH_PORT+'/'
     bokeh_session_id = str(uuid.uuid4())
     script = autoload_server(model=None,
                          app_path="/plot_app",
                          session_id= log_name+":"+bokeh_session_id, # we pass the log id in front of a
                          # unique session id. There might be a better way to do this with bokeh but
                          # this works for now...
-                         url="http://localhost:5006/")
+                         url=bokeh_server_url)
     
     return render_template('analysis.html', plot_script = script, log_id = log_id, graphs = graphs)
 
@@ -297,14 +298,14 @@ def browse():
 def about():
     return render_template('about.html')
 
-def start_server(debug = True):
+def start_server():
 
-    if not debug:
+    if not __FLASK_DEBUG:
         import logging
         log = logging.getLogger('werkzeug')
         log.setLevel(logging.ERROR)
     
-    app.run(host='0.0.0.0',port=5002, debug=True)
+    app.run(host='0.0.0.0',port=__FLASK_PORT, threaded=True, debug=__FLASK_DEBUG)
     
 if __name__ == '__main__':
     start_server()

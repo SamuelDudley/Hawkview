@@ -45,6 +45,8 @@ class DynamicDownsample:
         for k in data:
             self.init_data[k] = data[k]
             self.cur_data[k] = data[k]
+        
+        del data
 
         # first downsampling
         self.downsample(self.cur_data, self.bokeh_plot.plot_width *

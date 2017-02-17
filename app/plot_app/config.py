@@ -2,6 +2,7 @@
 
 import configparser
 import os
+import uuid
 from colors import get_N_colors
 
 # load the config
@@ -10,6 +11,15 @@ _cur_dir = os.path.dirname(os.path.realpath(__file__))
 _conf.read_file(open(os.path.join(_cur_dir, '../config_default.ini')))
 
 __PRINT_TIMING = int(_conf.get('debug', 'print_timing'))
+__DOMAIN_NAME = _conf.get('general', 'web_domain_name')
+__BOKEH_DOMAIN_NAME = _conf.get('general', 'bokeh_domain_name')
+__BOKEH_PORT = _conf.get('general', 'bokeh_port')
+__FLASK_PORT = int(_conf.get('general', 'flask_port'))
+__FLASK_DEBUG = int(_conf.get('debug', 'flask_debug'))
+__FLASK_SECRET_KEY = _conf.get('general', 'flask_secret_key')
+if __FLASK_SECRET_KEY == '':
+    __FLASK_SECRET_KEY = str(uuid.uuid4())
+
 
 # general configuration variables for plotting
 plot_width = 900

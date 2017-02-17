@@ -9,12 +9,10 @@ from bokeh.io import curdoc
 from bokeh.layouts import column, widgetbox
 from bokeh.models.widgets import Div
 from lib import MAVHawkview
-
 from helper import *
 from config import *
 from colors import get_N_colors
 from configured_plots import generate_plots, custom_plot_handler
-
 
 start_time = timer()
 error_message = ''
@@ -40,7 +38,7 @@ start_time = timer()
 
 if error_message == '':
 
-    log_path = os.path.join('..','data',log_id) # this points to the folder with the raw np arrays
+    log_path = os.path.join(os.getcwd(),'data',log_id) # this points to the folder with the raw np arrays
     # we load hawkview, which will populate the state from the raw np arrays on disk
     hawk = MAVHawkview.Hawkview(log_path, processed_np_save_path = False, raw_np_save_path = False)
     # no np array data is yet loaded into memory...
@@ -67,6 +65,8 @@ if error_message == '':
 #     text_input.on_change("value", partial(custom_plot_handler, hawk = hawk, colors = colors, flight_modes = flight_modes))
 #     
     plots = generate_plots(hawk, graphs, colors, flight_modes, plots = plots)
+
+    del hawk
     
     title = 'Analysis'
 
