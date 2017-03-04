@@ -45,6 +45,20 @@
             <header class="jumbotron">
             <h1>Log Files</h1>
         </header>
+        
+    {% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <ul class=flashes>
+    {% for message in messages %}
+    	<div class="alert alert-warning alert-dismissable fade in">
+    		<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>
+    		<strong>Sorry </strong> {{ message }}
+  		</div>
+    {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+
     <table class="table table-striped table-hover" id="logTable">
     	<thead>
     		<tr>

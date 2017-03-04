@@ -18,27 +18,30 @@ start_time = timer()
 error_message = ''
 log_id = ''
 
-
 GET_arguments = curdoc().session_context.request.arguments
- 
+    
 if GET_arguments is not None and 'bokeh-session-id' in GET_arguments:
-        log_args = GET_arguments['bokeh-session-id'][0].split(':')[0]
-        log_id = log_args
+    log_args = GET_arguments['bokeh-session-id'][0].split(':')[0]
+    log_id = log_args
 
-        if not validate_log_id(log_id):
-            raise ValueError('Invalid log id: {}'.format(log_id))
+    if not validate_log_id(log_id):
+        raise ValueError('Invalid log id: {}'.format(log_id))
+        error_message == '1'
+    
 
-
-
-        print('GET[log]={}'.format(log_id))
-
+    print('GET[log]={}'.format(log_id))
+        
+        
+else:
+    error_message == '0'
+    
 print_timing("Data Loading", start_time)
 start_time = timer()
 
 
 if error_message == '':
-
-    log_path = os.path.join(os.getcwd(),'data',log_id) # this points to the folder with the raw np arrays
+#     os.getcwd()
+    log_path = os.path.normpath(os.path.join('..','data',log_id)) # this points to the folder with the raw np arrays
     # we load hawkview, which will populate the state from the raw np arrays on disk
     hawk = MAVHawkview.Hawkview(log_path, processed_np_save_path = False, raw_np_save_path = False)
     # no np array data is yet loaded into memory...
@@ -69,15 +72,16 @@ if error_message == '':
     del hawk
     
     title = 'Analysis'
-
+    layout = column(plots, name='mainLayout')
+    curdoc().add_root(layout)
+    print_timing("Plotting", start_time)
+    
 else:
 
     title = 'Error'
 
 # layout
 # layout = column([column([text_input], name='customLayout' )], name='mainLayout')#, sizing_mode='scale_width')
-layout = column(plots, name='mainLayout')
-curdoc().add_root(layout)
+
 curdoc().title = title
 
-print_timing("Plotting", start_time)

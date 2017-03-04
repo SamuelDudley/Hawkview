@@ -217,8 +217,8 @@ class Hawkview(object):
         else:
             sys.exit(1)
             
-        # support for loading pre-processed folders
-        if os.path.isdir(files):
+#         # support for loading pre-processed folders
+        if os.path.isdir(self.mestate.file):
             # the file is a folder...
             # try to load the existing info...
             self.is_folder = True
@@ -766,6 +766,7 @@ if __name__ == "__main__":
     hawk.mestate.thread.daemon = True
     hawk.mestate.thread.start()
     hawk.process()
+    
 #     hawk.load_graphs()
 #     hawk.setup_menus()
     

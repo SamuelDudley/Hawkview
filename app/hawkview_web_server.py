@@ -4,17 +4,28 @@ Flask server for Hawkview Web App
 Samuel Dudley
 Oct 2016
 '''
+
+
+from bokeh.embed import autoload_server # bokeh in the flask app
+import eventlet
+eventlet.monkey_patch()
+from flask_socketio import SocketIO, emit
+from flask import Flask, request, render_template, session, redirect, url_for, flash, send_from_directory, jsonify
+
+
+
+import sys
+from collections import OrderedDict
+import time
+import redis
+import simplejson
+from celery import Celery
+import ast
 from plot_app.config import __FLASK_SECRET_KEY, __FLASK_PORT, __FLASK_DEBUG, __BOKEH_DOMAIN_NAME, __BOKEH_PORT                           
 import os, sys, json, uuid, hashlib, random, time, shutil, traceback
 import sqlite3 as lite
 
-import bokeh
-from bokeh.io import curdoc
 
-import simplejson
-from celery import Celery
-
-from flask import Flask, request, render_template, session, redirect, url_for, flash, send_from_directory, jsonify
 from werkzeug import secure_filename
 
 from lib.upload_file import uploadfile
@@ -29,10 +40,15 @@ app = Flask(__name__, root_path=APP_ROOT, template_folder=APP_TEMPLATES, static_
 app.secret_key = __FLASK_SECRET_KEY
 UPLOAD_FOLDER = os.path.join(APP_ROOT, 'data')
 app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024 # = 300MB
+app.debug = __FLASK_DEBUG
 
 # Celery configuration
 app.config['CELERY_BROKER_URL'] = 'redis://localhost:6379/0'
 app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
+app.config['CELERY_TRACK_STARTED'] = True
+app.config['CELERY_SEND_EVENTS'] = True
+
+socketio = SocketIO(app, async_mode='eventlet', message_queue=app.config['CELERY_BROKER_URL'] )
 
 # Initialize Celery
 celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
@@ -45,36 +61,92 @@ IGNORED_FILES.append('.gitignore')
 print 'IGNORED_FILES', IGNORED_FILES
 
 
+r = redis.StrictRedis.from_url('redis://localhost:6379/1')
+s = r.pubsub(ignore_subscribe_messages=True)
+s.subscribe('plot_manager')
+
+
 def get_db_filename():
     return os.path.join(os.getcwd(), 'data', 'logdatabase.db')
 
-
 @celery.task(bind=True)
-def process_log(self, log_path, filename, output_path='/tmp/log') :
+def process_log(self, url, log_path, filename, output_path='/tmp/log'):
     """Background task that runs a long function with progress reports."""
-    
+    error = ''
     def progress_bar(pct, end_val=100, bar_length=100):
         percent = float(pct) / end_val
         hashes = '|' * int(round(percent * bar_length))
         spaces = '-' * (bar_length - len(hashes))
-        
+         
         print ("\r[ {0} ] {1}%".format(hashes + spaces, int(round(percent * 100))))
         
-        self.update_state(state='PROGRESS',
-                              meta={'current': pct, 'total': 100,
-                                    'status': 'Processing'})
+        meta = {'current': pct, 'total': 100, 'status': 'Processing log', 'log':filename}
+        self.update_state(state='PROGRESS', meta=meta)
+        local_socketio.emit('log processing', {'data': {'PROGRESS':meta}}, namespace='/test')
+     
+    local_socketio = SocketIO(message_queue=url)
     
-    name, extension = os.path.splitext(filename)
-    hawk = Hawkview(log_path, raw_np_save_path= os.path.join(UPLOAD_FOLDER, name))
-    log_result = hawk.process(progress_func = progress_bar)
-    
-    hawk.cmd_save(args=[])
-    
-    self.update_state(state='COMPLETE',
-                              meta={'current': 100, 'total': 100,
-                                    'status': 'Task completed!', 'result': 42})
-    hawk = None
-    return {}
+    meta = {'current': 0, 'total': 100, 'status': 'Log processing started', 'log':filename}
+    self.update_state(state='STARTING', meta=meta)
+    local_socketio.emit('log processing', {'data': {'STARTING':meta}}, namespace='/test')
+     
+    # update the task status in the log database
+    task = ('PROCESSING',filename)
+    con = lite.connect(get_db_filename())
+    with con:
+        cur = con.cursor()
+        sql = ''' UPDATE Logs
+              SET Status = ?
+              WHERE Id = ?'''
+        cur = con.cursor()
+        cur.execute(sql, task)
+     
+    try: 
+        name, extension = os.path.splitext(filename)
+        hawk = Hawkview(log_path, raw_np_save_path= os.path.join(UPLOAD_FOLDER, name))
+        log_result = hawk.process(progress_func = progress_bar)
+         
+        hawk.cmd_save(args=[])
+        meta={'current': 100, 'total': 100,
+                                        'status': 'Log processing complete', 'log': filename}
+        
+        local_socketio.emit('log processing', {'data': {'COMPLETE':meta}}, namespace='/test')
+         
+        self.update_state(state='COMPLETE', meta=meta)
+        
+        task = ('COMPLETE',filename)
+        con = lite.connect(get_db_filename())
+        with con:
+            cur = con.cursor()
+            sql = ''' UPDATE Logs
+                  SET Status = ?
+                  WHERE Id = ?'''
+            cur = con.cursor()
+            cur.execute(sql, task)
+         
+        hawk = None
+        
+    except Exception as e:
+        stack_str = traceback.print_exc(e)
+        error_str = 'ERROR: An error occurred while processing {0} [ {1} ] [ {2} ]'.format(filename, e, stack_str)
+        print error_str
+        
+        task = ('ERROR', error_str, filename)
+        con = lite.connect(get_db_filename())
+        with con:
+            cur = con.cursor()
+            sql = ''' UPDATE Logs
+                  SET Status = ?,
+                      Error = ?
+                  WHERE Id = ?'''
+            cur = con.cursor()
+            cur.execute(sql, task)
+        
+        meta={'error':error_str, 'status': 'Log processing error', 'log': filename}
+        local_socketio.emit('log processing', {'data': {'ERROR':meta}}, namespace='/test')
+        self.update_state(state='ERROR',meta=meta)
+        
+    return {'log':filename}
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -156,17 +228,18 @@ def upload():
                     
                     else:                    
                         rows = [(filename, '', discription, time.strftime('%Y-%m-%d %H:%M:%S'), 0, 0, 'Hawkview.io', email, '', 1, str(uuid.uuid4()),
-                                 hash, size, 'UPLOADED')]
-                        cur.executemany('INSERT INTO Logs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', rows)
+                                 hash, size, 'UPLOADED', '')]
+                        cur.executemany('INSERT INTO Logs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', rows)
                         con.commit()
                 
                 if result is None:
                     # return json for js call back
                     result = uploadfile(name=filename, type=mimetype, size=size)
-                    task = process_log.apply_async((os.path.join(APP_ROOT,result.get_file()['url']),filename))
+                    print 'pre task'
+                    task = process_log.apply_async((app.config['CELERY_BROKER_URL'],os.path.join(APP_ROOT,result.get_file()['url']),filename))
+#                     task = process_log.delay()#os.path.join(APP_ROOT,result.get_file()['url']),filename)
                     print task.id
                 
-#                 task = long_task.apply_async()
             return simplejson.dumps({"files": [result.get_file()]})
 
     if request.method == 'GET':
@@ -205,37 +278,6 @@ def delete(filename):
             return simplejson.dumps({filename: 'False'})
 
 
-@app.route('/status/<task_id>')
-def taskstatus(task_id):
-    task = process_log.AsyncResult(task_id)
-    if task.state == 'PENDING':
-        # job has not started yet
-        response = {
-            'state': task.state,
-            'current': 0,
-            'total': 1,
-            'status': 'Pending...'
-        }
-    elif task.state != 'FAILURE':
-        response = {
-            'state': task.state,
-            'current': task.info.get('current', 0),
-            'total': task.info.get('total', 1),
-            'status': task.info.get('status', '')
-        }
-        if 'result' in task.info:
-            response['result'] = task.info['result']
-    else:
-        # something went wrong in the background job
-        response = {
-            'state': task.state,
-            'current': 1,
-            'total': 1,
-            'status': str(task.info),  # this is the exception raised
-        }
-    return jsonify(response)
-
-
 # Allow the download of files from the server
 @app.route("/data/<string:filename>", methods=['GET'])
 def get_file(filename):
@@ -245,11 +287,16 @@ def get_file(filename):
 def index():
     return render_template('index.html')
 
+
 @app.route('/analysis/<log_id>', methods=['GET', 'POST'])
 def analysis(log_id):
+    
+    r.publish('web_server', {'plot_request':'ip'})
+    
+    
     from bokeh.embed import autoload_server
     # generate graphs and run the analysis for this log id
-    print ('Starting analysis for log id:', log_id)
+    print('Starting analysis for log id: {0}'.format(log_id))
     
     [log_name,log_extension] = log_id.split('.')
     print log_name,log_extension
@@ -270,7 +317,36 @@ def analysis(log_id):
 #         print graph['expression']
 #         print graph['description']
 #         print graph['name']
-    bokeh_server_url = 'http://' + __BOKEH_DOMAIN_NAME +':'+__BOKEH_PORT+'/'
+    
+    data = {}
+    bokeh_port = -1
+    
+    end_wait = time.time()+3 # seconds
+    while time.time() < end_wait:
+        plot_manager_data = s.get_message()
+        if plot_manager_data is not None:
+            try:
+                data = ast.literal_eval(plot_manager_data['data'])
+                print data
+            except Exception as e:
+                print('ERROR: {0}'.format(e))
+            
+            if 'port' in data.keys():
+                bokeh_port = data['port']
+                break
+            
+        time.sleep(0.01)
+        
+    
+    if bokeh_port == 0:
+        flash('No bokeh servers currently available... Please try again shortly')
+        return redirect(url_for('browse'))
+    
+    if bokeh_port == -1:
+        flash('There was an error communicating with the bokeh servers... Please try again later')
+        return redirect(url_for('browse'))
+    
+    bokeh_server_url = 'http://' + __BOKEH_DOMAIN_NAME +':'+str(bokeh_port)+'/'
     bokeh_session_id = str(uuid.uuid4())
     script = autoload_server(model=None,
                          app_path="/plot_app",
@@ -298,16 +374,28 @@ def browse():
 def about():
     return render_template('about.html')
 
-def start_server():
-
-    if not __FLASK_DEBUG:
-        import logging
-        log = logging.getLogger('werkzeug')
-        log.setLevel(logging.ERROR)
+@socketio.on('connect', namespace='/test')
+def test_connect():
+    emit('my response', {'data': 'Connected'})
     
-    app.run(host='0.0.0.0',port=__FLASK_PORT, threaded=True, debug=__FLASK_DEBUG)
+@socketio.on('disconnect', namespace='/chat')
+def test_disconnect():
+    print('Client disconnected')
+
+@socketio.on('my event', namespace='/test')
+def handle_my_custom_event(json):
+    print json
+
+def start_server():
+    socketio.run(app, host='0.0.0.0',port=__FLASK_PORT, debug=False)#, debug=__FLASK_DEBUG)
+#     if not __FLASK_DEBUG:
+#         import logging
+#         log = logging.getLogger('werkzeug')
+#         log.setLevel(logging.ERROR)
+#      
+#     app.run(host='0.0.0.0',port=__FLASK_PORT, threaded=True, debug=__FLASK_DEBUG)
     
 if __name__ == '__main__':
     start_server()
-    
+
     

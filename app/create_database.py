@@ -47,6 +47,7 @@ with con:
                 "Hash TEXT, " # md5 hash for this log
                 "LogSize INT, " # size of the log on disk
                 "Status TEXT, " # status of log processing
+                "Error TEXT, " # any error trace when processing the log
                 "CONSTRAINT Id_PK PRIMARY KEY (Id))")
 #     else:
 #         # try to upgrade

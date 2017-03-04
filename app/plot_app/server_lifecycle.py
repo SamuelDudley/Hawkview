@@ -12,4 +12,4 @@ def on_session_created(session_context):
 
 def on_session_destroyed(session_context):
     ''' If present, this function is called when a session is closed. '''
-    pass
+    print 'session destroyed'

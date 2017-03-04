@@ -167,6 +167,35 @@
 </script>
 {% endraw %}
 
+<script src="static/js/socket.io.js"></script>
+
+<script>
+    namespace = '/log_processing';
+    socket = io.connect('http://' + document.domain + ':' + location.port + namespace);
+    
+    socket.on('connect', function() {
+        $('#log').append('Connected<br>');
+    });
+
+    socket.on('log processing', function(msg) {
+    	if (msg.data.STARTING){
+    		console.log('Starting: ' + msg.data.STARTING);
+            $('#log').append('Starting: ' + msg.data.STARTING + '<br>');
+    	} else if (msg.data.PROGRESS) {
+    		console.log('Progress: ' + msg.data.PROGRESS);
+            $('#log').append('Progress: ' + msg.data.PROGRESS + '<br>');
+    	} else if (msg.data.COMPLETE) {
+    		console.log('Complete: ' + msg.data.COMPLETE);
+            $('#log').append('Complete: ' + msg.data.COMPLETE + '<br>');
+    	} else if (msg.data.ERROR) {
+    		console.log('Error: ' + msg.data.ERROR);
+            $('#log').append('Error: ' + msg.data.ERROR + '<br>');
+    	} else {
+    		console.log('Unhandled');
+    	}
+    });
+</script>
+
 <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
 <!-- The jQuery UI widget factory, can be omitted if jQuery UI is already included -->
 <script src="static/js/vendor/jquery.ui.widget.js"></script>
