@@ -12,8 +12,6 @@ eventlet.monkey_patch()
 from flask_socketio import SocketIO, emit
 from flask import Flask, request, render_template, session, redirect, url_for, flash, send_from_directory, jsonify
 
-
-
 import sys
 from collections import OrderedDict
 import time
@@ -43,6 +41,7 @@ app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024 # = 300MB
 app.debug = __FLASK_DEBUG
 
 # Celery configuration
+# redis://:password@hostname:port/db_number
 app.config['CELERY_BROKER_URL'] = 'redis://localhost:6379/0'
 app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
 app.config['CELERY_TRACK_STARTED'] = True
@@ -54,16 +53,12 @@ socketio = SocketIO(app, async_mode='eventlet', message_queue=app.config['CELERY
 celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
 celery.conf.update(app.config)
 
+r = redis.StrictRedis.from_url('redis://localhost:6379/1')
 
 ALLOWED_EXTENSIONS = set(['bin', 'tlog'])
 IGNORED_FILES = [ f for f in os.listdir(UPLOAD_FOLDER) if os.path.isfile(os.path.join(UPLOAD_FOLDER,f))]
 IGNORED_FILES.append('.gitignore')
 print 'IGNORED_FILES', IGNORED_FILES
-
-
-r = redis.StrictRedis.from_url('redis://localhost:6379/1')
-s = r.pubsub(ignore_subscribe_messages=True)
-s.subscribe('plot_manager')
 
 
 def get_db_filename():
@@ -72,7 +67,6 @@ def get_db_filename():
 @celery.task(bind=True)
 def process_log(self, url, log_path, filename, output_path='/tmp/log'):
     """Background task that runs a long function with progress reports."""
-    error = ''
     def progress_bar(pct, end_val=100, bar_length=100):
         percent = float(pct) / end_val
         hashes = '|' * int(round(percent * bar_length))
@@ -235,7 +229,6 @@ def upload():
                 if result is None:
                     # return json for js call back
                     result = uploadfile(name=filename, type=mimetype, size=size)
-                    print 'pre task'
                     task = process_log.apply_async((app.config['CELERY_BROKER_URL'],os.path.join(APP_ROOT,result.get_file()['url']),filename))
 #                     task = process_log.delay()#os.path.join(APP_ROOT,result.get_file()['url']),filename)
                     print task.id
@@ -290,11 +283,9 @@ def index():
 
 @app.route('/analysis/<log_id>', methods=['GET', 'POST'])
 def analysis(log_id):
+    return_channel = 'plot_manager-'+str(uuid.uuid4())
+    r.publish('web_server', {'plot_request':return_channel})
     
-    r.publish('web_server', {'plot_request':'ip'})
-    
-    
-    from bokeh.embed import autoload_server
     # generate graphs and run the analysis for this log id
     print('Starting analysis for log id: {0}'.format(log_id))
     
@@ -317,12 +308,16 @@ def analysis(log_id):
 #         print graph['expression']
 #         print graph['description']
 #         print graph['name']
+
+    s = r.pubsub(ignore_subscribe_messages=True)
+    s.subscribe(return_channel)
     
     data = {}
     bokeh_port = -1
     
     end_wait = time.time()+3 # seconds
     while time.time() < end_wait:
+        
         plot_manager_data = s.get_message()
         if plot_manager_data is not None:
             try:
@@ -333,9 +328,11 @@ def analysis(log_id):
             
             if 'port' in data.keys():
                 bokeh_port = data['port']
+                print "got port", bokeh_port
                 break
             
         time.sleep(0.01)
+    s.unsubscribe()
         
     
     if bokeh_port == 0:

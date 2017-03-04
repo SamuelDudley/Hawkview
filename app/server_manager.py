@@ -2,6 +2,7 @@ from subprocess import PIPE, Popen
 import signal, time
 import redis
 import ast
+import psutil
 
 
 
@@ -13,6 +14,11 @@ class server_manager():
         self.p = {}
         self.ports = [5009,5008]
         self.start_time = time.time()
+        self.current_time = time.time()
+        self.cpu_usage = psutil.cpu_percent()
+        self.mem_usage = psutil.virtual_memory()
+        self.disk_usage = psutil.disk_usage('/')
+        self.swap_usage = psutil.swap_memory()
         self.free_ports = self.ports
         self.procs_to_remove = []
         self.exit = False
@@ -29,6 +35,7 @@ class server_manager():
     def main(self):
         print("Started the bokeh server manager: {}".format(self.free_ports))
         while not self.exit:
+            self.watch_system()
             self.watch_servers()
             self.check_free_ports()
             web_server_data = self.s.get_message()
@@ -41,12 +48,13 @@ class server_manager():
                 
                 if 'plot_request' in data.keys():
                     if len(self.free_ports) > 0:
-                        self.launch_servers([self.free_ports[0]])
-                        time.sleep(3)
-                        self.r.publish('plot_manager', {'port':self.free_ports[0]})
+                        self.launch_servers([self.free_ports[0]]) 
+                        time.sleep(1.5)
+                        
+                        self.r.publish(data['plot_request'], {'port':self.free_ports[0]})
                     else:
                         print('NO FREE BOKEH SERVERS!')
-                        self.r.publish('plot_manager', {'port':0})
+                        self.r.publish(data['plot_request'], {'port':0})
             
             time.sleep(0.01)
     
@@ -75,9 +83,19 @@ class server_manager():
             if self.p[proc].poll() is None:
                 output =  self.p[proc].stdout.readline() # read output
                 print proc, output
+                if "SERVER:LOADED:".find(output) >= 0:
+                    print output
+                    
                 # TODO use the info to work out which servers can have sessions added
             else:
                 self.procs_to_remove.append(proc)
+    
+    def watch_system(self):
+        self.current_time = time.time()
+        self.cpu_usage = psutil.cpu_percent()
+        self.mem_usage = psutil.virtual_memory()
+        self.disk_usage = psutil.disk_usage('/')
+        self.swap_usage = psutil.swap_memory()
                 
     def shutdown_all_servers(self):
         for proc in self.p:
