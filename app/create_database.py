@@ -47,34 +47,8 @@ with con:
                 "Hash TEXT, " # md5 hash for this log
                 "LogSize INT, " # size of the log on disk
                 "Status TEXT, " # status of log processing
+                "Error TEXT, " # error trace when processing the log (if any)
                 "CONSTRAINT Id_PK PRIMARY KEY (Id))")
-#     else:
-#         # try to upgrade
-#         column_names = [ x[1] for x in columns]
-#         if not 'Email' in column_names:
-#             print('Adding column Email')
-#             cur.execute("ALTER TABLE Logs ADD COLUMN Email TEXT DEFAULT ''")
-#         if not 'WindSpeed' in column_names:
-#             print('Adding column WindSpeed')
-#             cur.execute("ALTER TABLE Logs ADD COLUMN WindSpeed INT DEFAULT -1")
-#         if not 'Rating' in column_names:
-#             print('Adding column Rating')
-#             cur.execute("ALTER TABLE Logs ADD COLUMN Rating TEXT DEFAULT ''")
-#         if not 'Feedback' in column_names:
-#             print('Adding column Feedback')
-#             cur.execute("ALTER TABLE Logs ADD COLUMN Feedback TEXT DEFAULT ''")
-#         if not 'Type' in column_names:
-#             print('Adding column Type')
-#             cur.execute("ALTER TABLE Logs ADD COLUMN Type TEXT DEFAULT ''")
-#         if not 'VideoUrl' in column_names:
-#             print('Adding column VideoUrl')
-#             cur.execute("ALTER TABLE Logs ADD COLUMN VideoUrl TEXT DEFAULT ''")
-#         if not 'Public' in column_names:
-#             print('Adding column Public')
-#             cur.execute("ALTER TABLE Logs ADD COLUMN Public INT DEFAULT 0")
-#         if not 'Token' in column_names:
-#             print('Adding column Token')
-#             cur.execute("ALTER TABLE Logs ADD COLUMN Token TEXT DEFAULT ''")
 
 
     # LogsGenerated table (information from the log file, for faster access)
@@ -95,13 +69,4 @@ with con:
                 "FlightModes TEXT, " # all flight modes as comma-separated int's
                 "SoftwareVersion TEXT, " # release version
                 "CONSTRAINT Id_PK PRIMARY KEY (Id))")
-
-#     else:
-#         # try to upgrade
-#         column_names = [ x[1] for x in columns]
-# 
-#         if not 'SoftwareVersion' in column_names:
-#             print('Adding column SoftwareVersion')
-#             cur.execute("ALTER TABLE LogsGenerated ADD COLUMN SoftwareVersion TEXT DEFAULT ''")
-
 con.close()
