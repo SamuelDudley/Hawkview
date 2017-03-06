@@ -1,6 +1,6 @@
 # Hawkview
 An online tool to share and analyse [Ardupilot](http://ardupilot.org/) telemetry (.tlog) and flash (.bin) logs.
-This project aims to replicate the functionality of [review.px4.io](http://review.px4.io/) but with plots and data extraction for [Ardupilot](http://ardupilot.org/) based flight controllers.
+This project aims to replicate the functionality of [MAVExplorer](https://github.com/ArduPilot/MAVProxy/blob/master/MAVProxy/tools/MAVExplorer.py) with a web based front end.
 
 Currently in Alpha, this is a proof of concept which needs a bit more refinement to be truly useful to the community.
 
