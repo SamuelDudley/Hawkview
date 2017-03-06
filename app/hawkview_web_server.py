@@ -4,11 +4,11 @@ Flask server for Hawkview Web App
 Samuel Dudley
 Oct 2016
 '''
-
-
 from bokeh.embed import autoload_server # bokeh in the flask app
+
 import eventlet
 eventlet.monkey_patch()
+
 from flask_socketio import SocketIO, emit
 from flask import Flask, request, render_template, session, redirect, url_for, flash, send_from_directory, jsonify
 
@@ -19,10 +19,11 @@ import redis
 import simplejson
 from celery import Celery
 import ast
-from plot_app.config import __FLASK_SECRET_KEY, __FLASK_PORT, __FLASK_DEBUG, __BOKEH_DOMAIN_NAME, __BOKEH_PORT                           
+
+from plot_app.config import __FLASK_SECRET_KEY, __FLASK_PORT, __FLASK_DEBUG, __BOKEH_DOMAIN_NAME, __BOKEH_PORT
+                       
 import os, sys, json, uuid, hashlib, random, time, shutil, traceback
 import sqlite3 as lite
-
 
 from werkzeug import secure_filename
 
@@ -66,7 +67,8 @@ def get_db_filename():
 
 @celery.task(bind=True)
 def process_log(self, url, log_path, filename, output_path='/tmp/log'):
-    """Background task that runs a long function with progress reports."""
+    """Background task that processes a log with websocket progress reports"""
+    
     def progress_bar(pct, end_val=100, bar_length=100):
         percent = float(pct) / end_val
         hashes = '|' * int(round(percent * bar_length))
@@ -76,13 +78,13 @@ def process_log(self, url, log_path, filename, output_path='/tmp/log'):
         
         meta = {'current': pct, 'total': 100, 'status': 'Processing log', 'log':filename}
         self.update_state(state='PROGRESS', meta=meta)
-        local_socketio.emit('log processing', {'data': {'PROGRESS':meta}}, namespace='/test')
+        local_socketio.emit('log processing', {'data': {'PROGRESS':meta}}, namespace='/celery')
      
-    local_socketio = SocketIO(message_queue=url)
+    local_socketio = SocketIO(message_queue=url) # setup a websocket to run from the celery task
     
     meta = {'current': 0, 'total': 100, 'status': 'Log processing started', 'log':filename}
     self.update_state(state='STARTING', meta=meta)
-    local_socketio.emit('log processing', {'data': {'STARTING':meta}}, namespace='/test')
+    local_socketio.emit('log processing', {'data': {'STARTING':meta}}, namespace='/celery')
      
     # update the task status in the log database
     task = ('PROCESSING',filename)
@@ -104,7 +106,7 @@ def process_log(self, url, log_path, filename, output_path='/tmp/log'):
         meta={'current': 100, 'total': 100,
                                         'status': 'Log processing complete', 'log': filename}
         
-        local_socketio.emit('log processing', {'data': {'COMPLETE':meta}}, namespace='/test')
+        local_socketio.emit('log processing', {'data': {'COMPLETE':meta}}, namespace='/celery')
          
         self.update_state(state='COMPLETE', meta=meta)
         
@@ -137,30 +139,28 @@ def process_log(self, url, log_path, filename, output_path='/tmp/log'):
             cur.execute(sql, task)
         
         meta={'error':error_str, 'status': 'Log processing error', 'log': filename}
-        local_socketio.emit('log processing', {'data': {'ERROR':meta}}, namespace='/test')
+        local_socketio.emit('log processing', {'data': {'ERROR':meta}}, namespace='/celery')
         self.update_state(state='ERROR',meta=meta)
-        
+    
+    # TODO: email user when log is ready
+    
     return {'log':filename}
 
 def allowed_file(filename):
     return '.' in filename and \
         filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
 def gen_file_name(filename):
-    """
-    If file name exist already, rename it and return a new name
-    """
+    """ create a new file name for the log """
     name, extension = os.path.splitext(filename)
     name = str(uuid.uuid4())
-    filename = '%s%s' % (name, extension)
+    filename = '%s%s' % (name, extension.lower())
     
-    i = 1
+    # if the file name exist already, rename it and return a new name
     while os.path.exists(os.path.join(UPLOAD_FOLDER, filename)):
         name, extension = os.path.splitext(filename)
-        filename = '%s_%s%s' % (name, str(i), extension)
-        i = i + 1
-
+        filename = '%s%s' % (str(uuid.uuid4()), extension.lower())
+        
     return filename
 
 
@@ -184,6 +184,7 @@ def upload():
         result = None
         if file:
             filename = secure_filename(file.filename)
+            original_filename = filename 
             filename = gen_file_name(filename)
             mimetype = file.content_type
 
@@ -198,15 +199,11 @@ def upload():
 
                 # get file size after saving
                 size = os.path.getsize(uploaded_file_path)
-                print size
+
                 # get the md5 hash for the file
                 hash = md5sum(filename)
                 
-                # check the database to see if the file has already been uploaded
-                print('HASH', hash)
-                
-                # create a row in the log database for the newly uploaded log
-                
+                # check the database to see if the file has already been uploaded                
                 con = lite.connect(get_db_filename())
                 with con:
                     cur = con.cursor()
@@ -216,23 +213,26 @@ def upload():
                     if res is not None:
                         if len(res) >= 1:
                             # a file with the same hash already exists...
-                            # return a link to the existing file
+                            # return a link to the existing file for js upload call back
                             result = uploadfile(name=res[0], type=mimetype, size=res[12])
                             delete(filename)
                     
-                    else:                    
+                    else:
+                        # create a row in the log database for the newly uploaded log                    
                         rows = [(filename, '', discription, time.strftime('%Y-%m-%d %H:%M:%S'), 0, 0, 'Hawkview.io', email, '', 1, str(uuid.uuid4()),
                                  hash, size, 'UPLOADED', '')]
                         cur.executemany('INSERT INTO Logs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', rows)
                         con.commit()
                 
                 if result is None:
-                    # return json for js call back
-                    result = uploadfile(name=filename, type=mimetype, size=size)
+                    # create json for js upload call back
+                    result = uploadfile(name=filename, type=mimetype, size=size, original_name=original_filename)
+                    
+                    # start the background celery task...
                     task = process_log.apply_async((app.config['CELERY_BROKER_URL'],os.path.join(APP_ROOT,result.get_file()['url']),filename))
-#                     task = process_log.delay()#os.path.join(APP_ROOT,result.get_file()['url']),filename)
-                    print task.id
-                
+                    print(task.id)
+            
+            # return json for js upload call back   
             return simplejson.dumps({"files": [result.get_file()]})
 
     if request.method == 'GET':
@@ -280,9 +280,38 @@ def get_file(filename):
 def index():
     return render_template('index.html')
 
+def read_json(file_path):
+    with open(file_path, 'r') as fid:
+        json_data = json.load(fid)
+    return json_data
 
 @app.route('/analysis/<log_id>', methods=['GET', 'POST'])
 def analysis(log_id):
+    # check the log database andmake sure we it is ready for analysis
+    con = lite.connect(get_db_filename())
+    with con:
+        cur = con.cursor()
+        sql = "SELECT Status FROM Logs WHERE Id=?"
+        cur.execute(sql, [(log_id)])
+        res = cur.fetchone()
+        log_status = res[0]
+        
+    if log_status == 'ERROR':
+        flash('This log encountered error(s) during processing and is not available for analysis...')
+        # TODO: add link to allow notification of web-admin
+        return redirect(url_for('browse'))
+    elif (log_status == 'PROCESSING' or log_status == 'STARTING'):
+        flash('This log is still currently processing and is not currently available for analysis...')
+        return redirect(url_for('browse'))
+    elif log_status == 'UPLOADED':
+        flash('This log is queued for processing and is not currently available for analysis...')
+        return redirect(url_for('browse'))
+    else:
+        # log status is 'COMPLETE' allow analysis
+        pass
+    
+        
+    
     return_channel = 'plot_manager-'+str(uuid.uuid4())
     r.publish('web_server', {'plot_request':return_channel})
     
@@ -292,16 +321,30 @@ def analysis(log_id):
     [log_name,log_extension] = log_id.split('.')
     print log_name,log_extension
     log_folder = os.path.join(UPLOAD_FOLDER,log_name)
-    graphs_json = os.path.join(log_folder, 'graphs.json')
-    params_json = os.path.join(log_folder, 'params.json')
-    flightmodes_json  = os.path.join(log_folder, 'flightmodes.json')
-    messages_json = os.path.join(log_folder, 'messages.json')
     
-    with open(graphs_json, 'r') as fid:
-        graphs = json.load(fid)
-#     params = json.load(params_json)
-#     flightmodes = json.load(flightmodes_json)
-#     messages = json.load(messages_json)
+    try:
+        graphs_json = os.path.join(log_folder, 'graphs.json')
+        graphs = read_json(graphs_json)
+    except:
+        graphs = []
+        
+    try:
+        params_json = os.path.join(log_folder, 'params.json')
+        params = read_json(params_json)
+    except:
+        params = []
+    
+    try:
+        flightmodes_json  = os.path.join(log_folder, 'flightmodes.json')
+        flightmodes = read_json(flightmodes_json)
+    except:
+        flightmodes = []
+    
+    try:
+        messages_json = os.path.join(log_folder, 'messages.json')
+        messages = read_json(messages_json)
+    except:
+        messages = []
     
     for graph in graphs:
         print graph['path']
@@ -352,7 +395,9 @@ def analysis(log_id):
                          # this works for now...
                          url=bokeh_server_url)
     
-    return render_template('analysis.html', plot_script = script, log_id = log_id, graphs = graphs)
+    return render_template('analysis.html', plot_script = script, log_id = log_id, graphs = graphs, 
+                           params = params, flightmodes = flightmodes, messages = messages)
+
 
 @app.route('/browse', methods=['GET', 'POST'])
 def browse():
@@ -365,32 +410,27 @@ def browse():
         res = cur.fetchall()
     
     print res
-    return render_template('logs.html', headderNames=headderNames, logs=res)
+    return render_template('logs.html', headderNames = headderNames, logs = res)
+
 
 @app.route('/about', methods=['GET', 'POST'])
 def about():
     return render_template('about.html')
 
-@socketio.on('connect', namespace='/test')
-def test_connect():
-    emit('my response', {'data': 'Connected'})
-    
-@socketio.on('disconnect', namespace='/chat')
-def test_disconnect():
-    print('Client disconnected')
 
-@socketio.on('my event', namespace='/test')
-def handle_my_custom_event(json):
-    print json
+@socketio.on('connect', namespace='/celery')
+def celery_connect():
+    print('Client connected to celery ws')
+    
+
+@socketio.on('disconnect', namespace='/celery')
+def celery_disconnect():
+    print('Client disconnected from celery ws')
+
 
 def start_server():
-    socketio.run(app, host='0.0.0.0',port=__FLASK_PORT, debug=False)#, debug=__FLASK_DEBUG)
-#     if not __FLASK_DEBUG:
-#         import logging
-#         log = logging.getLogger('werkzeug')
-#         log.setLevel(logging.ERROR)
-#      
-#     app.run(host='0.0.0.0',port=__FLASK_PORT, threaded=True, debug=__FLASK_DEBUG)
+    socketio.run(app, host='0.0.0.0',port=__FLASK_PORT, debug=__FLASK_DEBUG)
+
     
 if __name__ == '__main__':
     start_server()

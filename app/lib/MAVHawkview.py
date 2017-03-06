@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 '''
-log analysis program
-hacked from mavexplorer by Andrew Tridgell to open and view (much) larger logs
-Samuel Dudley September 2015
+Hacked from mavexplorer by Andrew Tridgell to open, process and save (much) larger logs
+Samuel Dudley
+Sep 2015
 '''
 
 import collections
@@ -217,10 +217,9 @@ class Hawkview(object):
         else:
             sys.exit(1)
             
-#         # support for loading pre-processed folders
+        # support for loading pre-processed folders
         if os.path.isdir(self.mestate.file):
             # the file is a folder...
-            # try to load the existing info...
             self.is_folder = True
         else:
             self.is_folder = False
@@ -228,7 +227,9 @@ class Hawkview(object):
         
     def process(self, progress_func = False):
         if self.is_folder:
+            # try to load the existing info...
             self.cmd_load(args=[])
+                        
         else:
             t0 = time.time()
             mlog = mavutil.mavlink_connection(self.mestate.file, notimestamps=False,
@@ -661,7 +662,6 @@ class Hawkview(object):
                     setattr(self.mestate.arrays[msg_type], col_name, self.mestate.get_array(msg_type)[:][col_name])
                     self.mestate.arrays[msg_type][col_name] = getattr(self.mestate.arrays[msg_type], col_name)
                     col_multi = self.mestate.mlog.msg_mults[msg_type][col_name]
-        #             print col_name, col_multi
                     if col_multi is not None:
                         self.mestate.get_array(msg_type)[:][col_name]*= float(col_multi)
                         

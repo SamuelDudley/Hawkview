@@ -10,14 +10,15 @@
     <!-- Bootstrap -->
     <link href="static/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link href="static/bootstrap/css/dataTables.bootstrap.css" rel="stylesheet">
-
+    <link rel="stylesheet" href="static/css/style.css">
+    
     <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
     <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
     <!--[if lt IE 9]>
       <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
       <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
     <![endif]-->
-    <link rel="stylesheet" href="static/css/style.css">
+    
   </head>
   
   <body>
@@ -76,14 +77,40 @@
     	</tfoot>
     	<tbody>
     		{% for log in logs %}
-    		<tr>
+    		<tr id = {{ log[0] }}>
     			{% for ent in log %}
     				{% if loop.index0==0 %} <!-- the log id is a hyperlink to the associated analysis page -->
     					<td><a href="{{ url_for('analysis', log_id=ent) }}">{{ ent }}</a></td>
+    					
+    				{% elif loop.index0==2 %} <!-- Set the colour of the status field -->
+    					{% if ent == "COMPLETE" %}
+    						<td id = {{ log[0]+"_status" }}>
+    							<button type="button" class="btn btn-success btn-xs" id = {{ log[0]+"_btn" }}>{{ ent }}</button>
+    						</td>
+    					{% elif ent == "UPLOADED" %}
+    						<td id = {{ log[0]+"_status" }}>
+    							<button type="button" class="btn btn-info btn-xs" id = {{ log[0]+"_btn" }}>{{ ent }}</button>
+    						</td>
+    					{% elif ent == "PROCESSING" %}
+    						<td id = {{ log[0]+"_status" }}>
+    							<button type="button" class="btn btn-info btn-xs" id = {{ log[0]+"_btn" }}>{{ ent }}</button>
+    						</td>
+    					{% elif ent == "ERROR" %}
+    						<td id = {{ log[0]+"_status" }}>
+    							<button type="button" class="btn btn-danger btn-xs" id = {{ log[0]+"_btn" }}>{{ ent }}</button>
+    						</td>
+    					{% else %}
+    						<td id = {{ log[0]+"_status" }}>
+    							<button type="button" class="btn btn-default btn-xs" id = {{ log[0]+"_btn" }}>{{ ent }}</button>
+    						</td>
+    					{% endif %}
+    					
     				{% elif loop.index0==3 %} <!-- Display the file size in MB -->
     					<td>{{ (ent/1000000)|round(2)}} MB</td>
+    					
     				{% else %}
     					<td>{{ ent }}</td>
+    					
     				{% endif %}
     			{% endfor %}
     		</tr>
@@ -94,14 +121,19 @@
 
     <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
     <script src="static/bootstrap/js/jquery.js"></script>
+    
+    <!-- Websocket (necessary to provide user info on log progress) -->
+    <script src="static/js/socket.io.js"></script>
+	<script src="static/js/celery_ws.js"></script>
+    
     <!-- Include all compiled plugins (below), or include individual files as needed -->
     <script src="static/bootstrap/js/jquery.dataTables.min.js"></script>
     <script src="static/bootstrap/js/dataTables.bootstrap.js"></script>
     <script src="static/bootstrap/js/bootstrap.min.js"></script>
     <script>
-    $(logTable).dataTable( {
+    $(logTable).dataTable({
     	"ordering": true
-    } );
+    });
     </script>
   </body>
 </html>

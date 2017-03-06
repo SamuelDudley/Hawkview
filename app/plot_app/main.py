@@ -74,14 +74,12 @@ if error_message == '':
     title = 'Analysis'
     layout = column(plots, name='mainLayout')
     curdoc().add_root(layout)
-    print_timing("Plotting", start_time)
     
 else:
-
     title = 'Error'
 
 # layout
 # layout = column([column([text_input], name='customLayout' )], name='mainLayout')#, sizing_mode='scale_width')
 
 curdoc().title = title
-
+print_timing("Plotting", start_time)
