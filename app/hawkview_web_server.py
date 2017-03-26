@@ -15,6 +15,7 @@ from flask import Flask, request, render_template, session, redirect, url_for, f
 import sys
 from collections import OrderedDict
 import time
+import arrow
 import redis
 import simplejson
 from celery import Celery
@@ -401,16 +402,21 @@ def analysis(log_id):
 
 @app.route('/browse', methods=['GET', 'POST'])
 def browse():
-    headderNames = ["ID", "Date", "Status", "LogSize"]
+    headderNames = ["ID", "Uploaded", "Status", "Size"]
     con = lite.connect(get_db_filename())
     with con:
         cur = con.cursor()
         sql = "SELECT Id,Date,Status,LogSize FROM Logs"
         cur.execute(sql)
-        res = cur.fetchall()
+        logs = cur.fetchall()
     
-    print res
-    return render_template('logs.html', headderNames = headderNames, logs = res)
+#   logs is a list of tuples... To change values we do a list conversion
+    for (idx,log) in enumerate(logs):
+        log = list(logs[idx])
+        log[1] = arrow.get(log[1]).humanize()
+        logs[idx] = log
+        
+    return render_template('logs.html', headderNames = headderNames, logs = logs)
 
 
 @app.route('/about', methods=['GET', 'POST'])

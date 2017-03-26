@@ -7,12 +7,12 @@ import os
 import json
 from bokeh.io import curdoc
 from bokeh.layouts import column, widgetbox
-from bokeh.models.widgets import Div
+from bokeh.models.widgets import Div, CheckboxGroup, TextInput
 from lib import MAVHawkview
 from helper import *
 from config import *
 from colors import get_N_colors
-from configured_plots import generate_plots, custom_plot_handler
+from configured_plots import generate_plots, custom_plot_handler, plot_link_handler
 
 start_time = timer()
 error_message = ''
@@ -61,18 +61,21 @@ if error_message == '':
     
     plots = []
     
-    from bokeh.models.widgets import TextInput
     from functools import partial
     
 #     text_input = TextInput(value="", title="Custom Plot Expression")
 #     text_input.on_change("value", partial(custom_plot_handler, hawk = hawk, colors = colors, flight_modes = flight_modes))
-#     
-    plots = generate_plots(hawk, graphs, colors, flight_modes, plots = plots)
-
-    del hawk
     
+    plots = generate_plots(hawk, graphs, colors, flight_modes, plots = plots)
+    
+#     checkbox_link = CheckboxGroup(labels=["Link Plots"], active=[0])
+#     checkbox_link.on_change("active", partial(plot_link_handler, plots = plots))
+    
+
     title = 'Analysis'
+#     layout = column([checkbox_link]+plots, name='mainLayout')
     layout = column(plots, name='mainLayout')
+
     curdoc().add_root(layout)
     
 else:
@@ -83,3 +86,7 @@ else:
 
 curdoc().title = title
 print_timing("Plotting", start_time)
+
+session.show(layout) # open the document in a browser
+
+session.loop_until_closed() # run forever

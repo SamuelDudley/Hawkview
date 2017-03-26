@@ -29,6 +29,7 @@ class bokeh_server_wrapper(object):
         self.exit = False
         self.new_session_timeout = 20
         self.session_timeout = 1
+        self.server_timeout = 60*3 # 3 min # set to < 0 to live 'forever'
         self.session_info = {}
         
         signal.signal(signal.SIGINT, self.exit_gracefully)
@@ -51,8 +52,8 @@ class bokeh_server_wrapper(object):
             'generade_session_ids':True,
             'redirect_root':True,
             'use_x_headers':False,
-            'check_unused_sessions_milliseconds':1000,
-            'unused_session_lifetime_milliseconds':5000,
+            'check_unused_sessions_milliseconds':17000,
+            'unused_session_lifetime_milliseconds':15000,
             'secret_key':None,
             'num_procs':1,
             'host':['%s:%d'%('127.0.0.1',FLASK_PORT),'%s:%d'%('127.0.0.1',self.port)],
@@ -62,21 +63,29 @@ class bokeh_server_wrapper(object):
             'use_index':True
         }
         self.ser = Server(apps,**kwags)
+        
+        
+        self.session_info['global'] = {}
+        
+        if self.server_timeout > 0:
+            self.session_info['global']['server_timeout'] = time.time()+self.server_timeout
+        
+        self.session_info['global']['session_timeout']=time.time()+self.new_session_timeout
+        
     
     def get_sessions(self):
         self.sessions = self.ser.get_sessions('/plot_app') #Gets all live sessions for an application
-        print self.sessions
+#         print(self.sessions)
         if len(self.sessions) == 0:
             print('No sessions')
-            if not 'global' in self.session_info:
-                self.session_info['global'] = {'timeout':time.time()+self.new_session_timeout}
-            if time.time() > self.session_info['global']['timeout']:
+                          
+            if time.time() > self.session_info['global']['session_timeout']:
                 self.exit = True
                 self.stop_server()
                 
         for (idx,session) in enumerate(self.sessions):
             if not session.id in self.session_info:
-                self.session_info[session.id] = {'new' : True, 'session': session, 'connection_count':session.connection_count, 'timeout':time.time()+self.new_session_timeout}
+                self.session_info[session.id] = {'new' : True, 'session': session, 'connection_count':session.connection_count, 'session_timeout':time.time()+self.new_session_timeout}
             else:
                 self.session_info[session.id]['new'] = False
                 self.session_info[session.id]['connection_count'] = session.connection_count
@@ -84,14 +93,19 @@ class bokeh_server_wrapper(object):
             print('SESSION_IDX:{0}:CONNECTIONS:{1}'.format(idx, self.session_info[session.id]['connection_count']))
             
             if self.session_info[session.id]['connection_count'] == 0:
-                if time.time() > self.session_info[session.id]['timeout']:
+                if time.time() > self.session_info[session.id]['session_timeout']:
                     self.exit = True
                     self.stop_server()
                 
             else:
-                self.session_info[session.id]['timeout'] = time.time()+self.session_timeout
-                
-                
+                self.session_info[session.id]['session_timeout'] = time.time()+self.session_timeout
+        
+        if 'server_timeout' in self.session_info['global']:
+#             print('time to live: {0}s'.format(self.session_info['global']['server_timeout'] - time.time()))
+            if time.time() > self.session_info['global']['server_timeout']:
+                self.exit = True
+                self.stop_server()
+            
     def run_server(self):
         self.bok_io_loop.start()
         
@@ -101,7 +115,10 @@ class bokeh_server_wrapper(object):
         
     def get_memory(self):
         process = psutil.Process(os.getpid())
-        self.memory_usage = int(process.get_memory_info().rss)
+        try:
+            self.memory_usage = int(process.memory_info().rss)
+        except AttributeError:
+            self.memory_usage = int(process.get_memory_info().rss)
         print('MEMORY:{0}'.format(self.memory_usage))
         
 
@@ -127,10 +144,12 @@ if __name__ == "__main__":
     serv = bokeh_server_wrapper(port=int(args.port[0]))
     serv.setup_bokeh_server()
     
-    #
+    # setup a background thread to watch the server
     nadostop = threading.Thread(target=rest_of_tornado,args=(serv,))
     nadostop.daemon = True
     nadostop.start()
+    
+    # run the tornado server
     serv.run_server()
 
     

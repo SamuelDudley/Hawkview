@@ -1,11 +1,11 @@
 """ methods an classes used for plotting (wrappers around bokeh plots) """
-from bokeh.plotting import figure
+from bokeh.plotting import Figure
 
 from bokeh.models import (
     ColumnDataSource, Range1d, DataRange1d, DatetimeAxis,
     TickFormatter, DatetimeTickFormatter, FuncTickFormatter,
     Grid, Legend, Plot, BoxAnnotation, Span, CustomJS, Rect, Circle, Line,
-    HoverTool, BoxZoomTool, PanTool, WheelZoomTool,
+    HoverTool, BoxZoomTool, PanTool, WheelZoomTool, TapTool,
     WMTSTileSource, GMapPlot, GMapOptions,
     LabelSet
     )
@@ -61,7 +61,7 @@ def plot_set_equal_aspect_ratio(p, x, y, zoom_out_factor=1.3, min_range=5):
 
 class DataPlot:
     """
-    Handle the bokeh plot generation from an ULog dataset
+    Handle the bokeh plot generation from a named numpy array
     """
 
 
@@ -79,7 +79,7 @@ class DataPlot:
         self.y_max = None
         
         try:
-            self._p = figure(title=title, x_axis_label=x_axis_label,
+            self._p = Figure(title=title, x_axis_label=x_axis_label,
                              y_axis_label=y_axis_label, tools=TOOLS,
                              active_scroll=ACTIVE_SCROLL_TOOLS)
             if y_range is not None:
@@ -87,6 +87,8 @@ class DataPlot:
             
             if plot_name is not None:
                 self._p.name = plot_name
+            
+            self.colors = []
         
         # TODO: support this function
 #             if changed_params is not None:
@@ -118,13 +120,12 @@ class DataPlot:
         """
         if self._had_error: return
         try:
-            p = self._p       
+            p = self._p  
             data_set = {}
             data_set['timestamp'] = timestamp
             
             for field_value, field_name in zip(field_values, field_names): 
                 data_set[field_name] = field_value
-                
             
             if use_downsample:
                 # we directly pass the data_set, downsample and then create the
@@ -139,8 +140,16 @@ class DataPlot:
                 legend = " "+legend # Legend values will become keywords to data source. Add the space to keep them unique
     
                 p.line(x='timestamp', y=field_name, source=data_source,
-                       legend=legend, line_width=2, line_color=color)
-
+                       legend=legend, line_width=2, line_color=color, name=legend)
+#                        nonselection_line_color = color, nonselection_line_alpha=0.5,
+#                        selection_line_color = color, selection_line_alpha=1)
+                
+                self.colors.append(color)
+#                 cr = p.circle(x='timestamp', y=field_name, source=data_source, size=5,
+#                 fill_color=None, hover_fill_color=color,
+#                 fill_alpha=0.0, hover_alpha=0.5,
+#                 line_color=None, hover_line_color=color)
+                
         except (KeyError, IndexError, ValueError) as error:
             print(type(error), "("+self._data_name+"):", error)
             self._had_error = True
@@ -151,6 +160,42 @@ class DataPlot:
         on error """
         if self._had_error and not self._previous_success:
             return None
+        
+        p = self._p
+        
+        vline_code = """
+        vline.location = cb_data.geometry.x
+        """
+        
+        tap_code = """
+        d0 = cb_obj.selected["0d"];
+        console.log(cb_obj.selected, d0)
+        if (d0.glyph) {
+            var color = d0.get_view().visuals.line.line_color.value();
+            var line_width = d0.get_view().visuals.line.line_width.value();
+            console.log(color,line_width)
+        }
+        """
+        
+        vline = Span(location=0, dimension='height', line_color='black', line_width=1)
+        p.renderers.extend([vline])
+        callback_custom = CustomJS(args={'vline': vline}, code=vline_code)
+        
+        p.add_tools(TapTool(callback=CustomJS(code=tap_code)))
+        
+        hover = HoverTool(callback=callback_custom)
+        hover.point_policy='snap_to_data'
+        hover.line_policy='nearest'
+        hover.mode = 'vline'
+        hover.tooltips="""
+        <div>
+            <span style="font-size: 10px; display: inline-block;">[$index] (@timestamp, @y)</span>
+        </div>
+        """
+        #   <div style="background-color: #FF850A; width: 10px; height: 10px; display: inline-block; padding-right: 5px;"></div>
+
+        p.add_tools(hover)
+        
         self._setup_plot()
         return self._p
 
@@ -179,7 +224,7 @@ class DataPlot:
         p.xaxis[0].formatter = FuncTickFormatter(code='''
                     //func arguments: ticks, x_range
                     // assume us ticks
-                    ms = Math.round(tick / 1000)
+                    ms = Math.round(tick / 1000) *1.0e6
                     sec = Math.floor(ms / 1000)
                     minutes = Math.floor(sec / 60)
                     hours = Math.floor(minutes / 60)

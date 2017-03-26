@@ -25,6 +25,20 @@ def custom_plot_handler(attr, old, new, hawk = None, colors = None, flight_modes
     for plot in plots:
         if plot is not None:
             sub_list_of_sub_layouts.append(plot)
+            
+def plot_link_handler(attr, old, new, plots = None):
+    for checkbox_active in new: # new returns a list of idxs for active checkboxes e.g. [0, 3, 4] or []
+        print '!!', checkbox_active
+        if checkbox_active == 0: # the checkbox with idx 0
+            for plot in plots[0:]:
+                plot.x_range = plots[0].x_range
+            for plot in plots:
+                cursession().store_objects(plot) 
+    if len(new) == 0:
+        for plot in plots:
+            plot.x_range = plot.x_range
+
+        
     
 
 def generate_plots(hawk, graphs, colors, flight_modes, plots = []):
@@ -101,13 +115,13 @@ def generate_plots(hawk, graphs, colors, flight_modes, plots = []):
                 x = None
                 for msg_type in msg_types:
                     if msg_type in mestate.arrays:
-                        x = (mestate.arrays[msg_type]['timestamp']-mestate.mlog.min_timestamp)*1.0e6 # convert to usec from sec
+                        x = (mestate.arrays[msg_type]['timestamp']-mestate.mlog.min_timestamp) 
                 
                 if x is not None:
                     if data_plot is None:
                         data_plot = DataPlot(plot_config, title = gName, plot_name = gHandle)
                         
-                    data_plot.add_graph(x, [y], [field], [colors[colors_index]], [field], use_downsample=True)
+                    data_plot.add_graph(x, [y], ['y'], [colors[colors_index]], [field], use_downsample=True)
                     colors_index += 1
                         
         if data_plot is not None:

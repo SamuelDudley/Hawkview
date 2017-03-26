@@ -3,8 +3,18 @@
 .bk-logo-small {
 /*	filter: saturate(70%); */
 	display: none !important; /* hide it: looks much better. We give credit to bokeh on the page */
-
 }
+
 body {
-  padding-top: 60px;
+	padding-top: 60px;
+}
+
+.color-box {
+	width: 10px;
+	height: 10px;
+	display: inline-block;
+	background-color: #ccc;
+	position: absolute;
+	left: 5px;
+	top: 5px;
 }
